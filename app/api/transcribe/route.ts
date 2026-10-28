@@ -16,8 +16,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // استفاده از مدل رسمی و پایدار Whisper
-    const url = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+    const url = 'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2?language=persian';
     
     const res = await fetch(url, {
       method: 'POST',
