@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // حداکثر زمان مجاز در پلن Hobby
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.HUGGINGFACE_API_KEY;
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // استفاده از query parameter برای language=persian (طبق مستندات مدل)
+    // زبان را روی persian تنظیم می‌کنیم تا مدل کردی سورانی تولید کند
     const url = 'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2?language=persian';
     
     const res = await fetch(url, {
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'audio/wav',
-        'x-wait-for-model': 'true', // منتظر بارگذاری مدل بمان
+        'x-wait-for-model': 'true',
       },
       body: file,
     });
@@ -35,7 +35,6 @@ export async function POST(req: NextRequest) {
     }
     
     const data = await res.json();
-    // ساختار پاسخ ممکن است text باشد یا آرایه‌ای از chunks
     const text = data.text || data[0]?.text || '';
     return NextResponse.json({ text });
     
