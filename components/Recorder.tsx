@@ -148,5 +148,21 @@ export default function Recorder() {
       </div>
       <Transcript segments={segments} />
     </div>
+
+// داخل return، بعد از دکمه اصلی
+<button onClick={async () => {
+  setStatus('در حال تست ارتباط…');
+  try {
+    const fd = new FormData();
+    fd.append('file', new Blob(['test'], { type: 'audio/wav' }), 'test.wav');
+    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+    const data = await res.json();
+    setStatus(`پاسخ سرور: ${JSON.stringify(data)}`);
+  } catch (e) {
+    setStatus(`خطای شبکه: ${e}`);
+  }
+}}>تست ارتباط</button>
+
+
   );
 }
