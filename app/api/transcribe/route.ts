@@ -6,7 +6,7 @@ export const maxDuration = 30;
 export async function POST(req: NextRequest) {
   const apiKey = process.env.HUGGINGFACE_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'HUGGINGFACE_API_KEY is missing' }, { status: 500 });
+    return NextResponse.json({ error: 'HUGGINGFACE_API_KEY is missing in Vercel' }, { status: 500 });
   }
 
   const form = await req.formData();
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     // استفاده از مدل Whisper مخصوص کردی سورانی روی Hugging Face
     const res = await fetch(
-      'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v1',
+      'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2',
       {
         method: 'POST',
         headers: {
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     }
     
     const data = await res.json();
+    // خروجی ممکن است مستقیماً text باشد یا در آرایه باشد
     const text = data.text || data[0]?.transcription || '';
     return NextResponse.json({ text });
     
