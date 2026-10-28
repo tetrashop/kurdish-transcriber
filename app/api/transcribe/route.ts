@@ -4,9 +4,9 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.HORMOUS_API_KEY;
+  const apiKey = process.env.HUGGINGFACE_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'HORMOUS_API_KEY is missing in Vercel' }, { status: 500 });
+    return NextResponse.json({ error: 'HUGGINGFACE_API_KEY is missing' }, { status: 500 });
   }
 
   const form = await req.formData();
@@ -15,28 +15,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'audio file missing' }, { status: 400 });
   }
 
-  const upstream = new FormData();
-  upstream.append('file', file, 'chunk.wav');
-  upstream.append('model', 'openai/whisper-large-v3');
-  upstream.append('language', 'ku');
-  upstream.append('task', 'transcribe');
-  upstream.append('response_format', 'json');
-  upstream.append('temperature', '0');
-
   try {
-    const res = await fetch('https://api.hormouz.net/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: upstream,
-    });
+    // استفاده از مدل Whisper مخصوص کردی سورانی روی Hugging Face
+    const res = await fetch(
+      'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v1',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'audio/wav',
+        },
+        body: file,
+      }
+    );
     
     if (!res.ok) {
       const err = await res.text();
-      return NextResponse.json({ error: `Hormouz ${res.status}: ${err}` }, { status: res.status });
+      return NextResponse.json({ error: `HF ${res.status}: ${err}` }, { status: res.status });
     }
     
     const data = await res.json();
-    return NextResponse.json({ text: data.text ?? '' });
+    const text = data.text || data[0]?.transcription || '';
+    return NextResponse.json({ text });
     
   } catch (e: any) {
     return NextResponse.json({ error: `Network Error: ${e.message}` }, { status: 502 });
