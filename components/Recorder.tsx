@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 import Transcript, { type Segment } from './Transcript';
 
-const CHUNK_MS = 3000; // 3 ثانیه برای ارسال
+const CHUNK_MS = 3000;
 const MIN_CHUNK_SAMPLES = 16000 * 0.5;
 
 export default function Recorder() {
@@ -35,11 +35,21 @@ export default function Recorder() {
     const wav = encodeWAV(resampled, 16000);
 
     queueRef.current = queueRef.current.then(async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // ۱۵ ثانیه تایم‌اوت
+
       try {
         setStatus('در حال تبدیل…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
-        const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+        
+        const res = await fetch('/api/transcribe', { 
+          method: 'POST', 
+          body: fd,
+          signal: controller.signal 
+        });
+        
+        clearTimeout(timeoutId);
         const data = await res.json();
         
         if (data.error) {
@@ -55,9 +65,14 @@ export default function Recorder() {
         } else {
           setStatus('در حال شنیدن…');
         }
-      } catch (err) {
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          setStatus('خطا: سرور پاسخ نداد (تایم‌اوت)');
+        } else {
+          setStatus(`خطای شبکه: ${err.message}`);
+        }
         console.error(err);
-        setStatus('خطای شبکه');
       }
     });
     await queueRef.current;

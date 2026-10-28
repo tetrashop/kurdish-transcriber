@@ -15,6 +15,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'audio file missing' }, { status: 400 });
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 50000); // ۵۰ ثانیه فرصت برای Hugging Face
+
   try {
     const res = await fetch(
       'https://api-inference.huggingface.co/models/openai/whisper-large-v3?language=ku',
@@ -26,18 +29,22 @@ export async function POST(req: NextRequest) {
           'x-wait-for-model': 'true',
         },
         body: file,
+        signal: controller.signal,
       }
     );
 
+    clearTimeout(timeoutId);
+
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json({ error: `HF ${res.status}: ${errText.slice(0, 200)}` }, { status: res.status });
+      return NextResponse.json({ error: `HF ${res.status}: ${errText.slice(0, 100)}` }, { status: res.status });
     }
 
     const data = await res.json();
     return NextResponse.json({ text: data.text || '' });
 
   } catch (e: any) {
+    clearTimeout(timeoutId);
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
   }
 }
