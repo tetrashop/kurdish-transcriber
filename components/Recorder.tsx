@@ -36,10 +36,10 @@ export default function Recorder() {
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // ۱۵ ثانیه تایم‌اوت
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // ۲۰ ثانیه صبر می‌کند
 
       try {
-        setStatus('در حال تبدیل…');
+        setStatus('در حال ارسال به سرور…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
@@ -68,11 +68,10 @@ export default function Recorder() {
       } catch (err: any) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
-          setStatus('خطا: سرور پاسخ نداد (تایم‌اوت)');
+          setStatus('خطا: پاسخ سرور طول کشید (تایم‌اوت)');
         } else {
           setStatus(`خطای شبکه: ${err.message}`);
         }
-        console.error(err);
       }
     });
     await queueRef.current;
@@ -98,7 +97,7 @@ export default function Recorder() {
       setRecording(true);
       setStatus('در حال شنیدن…');
     } catch (err) {
-      setStatus('دسترسی رد شد');
+      setStatus('دسترسی به میکروفون رد شد');
     }
   };
 

@@ -16,11 +16,12 @@ export async function POST(req: NextRequest) {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50000); // ۵۰ ثانیه فرصت برای Hugging Face
+  const timeoutId = setTimeout(() => controller.abort(), 50000);
 
   try {
+    // استفاده از روتینگ جدید Hugging Face برای سرعت بالاتر
     const res = await fetch(
-      'https://api-inference.huggingface.co/models/openai/whisper-large-v3?language=ku',
+      'https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3',
       {
         method: 'POST',
         headers: {
