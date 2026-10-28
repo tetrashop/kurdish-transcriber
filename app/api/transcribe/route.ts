@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // زبان را روی persian تنظیم می‌کنیم تا مدل کردی سورانی تولید کند
-    const url = 'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2?language=persian';
+    // استفاده از مدل رسمی و پایدار Whisper
+    const url = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
     
     const res = await fetch(url, {
       method: 'POST',
@@ -31,12 +31,11 @@ export async function POST(req: NextRequest) {
     
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json({ error: `HF ${res.status}: ${errText}` }, { status: res.status });
+      return NextResponse.json({ error: `HF ${res.status}: ${errText.slice(0, 200)}` }, { status: res.status });
     }
     
     const data = await res.json();
-    const text = data.text || data[0]?.text || '';
-    return NextResponse.json({ text });
+    return NextResponse.json({ text: data.text || '' });
     
   } catch (e: any) {
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
