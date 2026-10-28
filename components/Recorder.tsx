@@ -3,8 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 import Transcript, { type Segment } from './Transcript';
 
-// افزایش زمان به 4 ثانیه تا مدل فرصت کافی برای پردازش داشته باشد
-const CHUNK_MS = 4000; 
+const CHUNK_MS = 3000; // 3 ثانیه برای ارسال
 const MIN_CHUNK_SAMPLES = 16000 * 0.5;
 
 export default function Recorder() {
@@ -35,86 +34,56 @@ export default function Recorder() {
     const resampled = resampleTo16k(merged, rateRef.current);
     const wav = encodeWAV(resampled, 16000);
 
-    // صف را با مدیریت خطا و تایم‌اوت همراه می‌کنیم تا قفل نشود
     queueRef.current = queueRef.current.then(async () => {
       try {
-        setStatus('در حال ارسال به سرور…');
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 ثانیه تایم‌اوت
-
+        setStatus('در حال تبدیل…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
-        
-        const res = await fetch('/api/transcribe', { 
-          method: 'POST', 
-          body: fd,
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
         const data = await res.json();
-
+        
         if (data.error) {
-          setStatus(`خطای سرور: ${String(data.error).slice(0, 60)}...`);
-          return; // خروج از تابع تا درخواست بعدی پردازش شود
-        }
-
-        if (data.text?.trim()) {
+           setStatus(`خطا: ${String(data.error).slice(0, 50)}`);
+        } else if (data.text?.trim()) {
           setSegments((prev) => [...prev, {
             id: crypto.randomUUID(),
             text: data.text.trim(),
             speaker: 'گوینده',
             ts: Date.now(),
           }]);
-        }
-        setStatus('در حال شنیدن…');
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          setStatus('خطا: زمان پاسخگویی سرور به پایان رسید');
+          setStatus('در حال شنیدن…');
         } else {
-          setStatus('خطا در ارتباط با سرور');
-          console.error(err);
+          setStatus('در حال شنیدن…');
         }
+      } catch (err) {
+        console.error(err);
+        setStatus('خطای شبکه');
       }
     });
-    
-    // منتظر ماندن برای تکمیل درخواست قبلی
     await queueRef.current;
   }, []);
 
   const start = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: true,
-          channelCount: 1,
-        },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 },
       });
       streamRef.current = stream;
       const ctx = new AudioContext();
       ctxRef.current = ctx;
       rateRef.current = ctx.sampleRate;
-      
       const source = ctx.createMediaStreamSource(stream);
       const processor = ctx.createScriptProcessor(4096, 1, 1);
-      
       processor.onaudioprocess = (e) => {
         bufferRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
-      
-      // اتصال خروجی به مقصد برای اجرای صحیح در کروم اندروید
       source.connect(processor);
       processor.connect(ctx.destination);
-      
       timerRef.current = setInterval(flush, CHUNK_MS);
       setRecording(true);
-      setStatus('در حال شنیدن… (صدا را در گوشی ضبط می‌کند)');
+      setStatus('در حال شنیدن…');
     } catch (err) {
-      console.error(err);
-      setStatus('دسترسی به میکروفون رد شد');
+      setStatus('دسترسی رد شد');
     }
   };
 
@@ -139,21 +108,6 @@ export default function Recorder() {
   }, []);
 
   return (
-// داخل return، بعد از دکمه اصلی
-<button onClick={async () => {
-  setStatus('در حال تست ارتباط…');
-  try {
-    const fd = new FormData();
-    fd.append('file', new Blob(['test'], { type: 'audio/wav' }), 'test.wav');
-    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
-    const data = await res.json();
-    setStatus(`پاسخ سرور: ${JSON.stringify(data)}`);
-  } catch (e) {
-    setStatus(`خطای شبکه: ${e}`);
-  }
-}}>تست ارتباط</button>
-    
-    
     <div className="panel">
       <div className="controls">
         <button onClick={recording ? stop : start}>
@@ -163,21 +117,5 @@ export default function Recorder() {
       </div>
       <Transcript segments={segments} />
     </div>
-
-// داخل return، بعد از دکمه اصلی
-<button onClick={async () => {
-  setStatus('در حال تست ارتباط…');
-  try {
-    const fd = new FormData();
-    fd.append('file', new Blob(['test'], { type: 'audio/wav' }), 'test.wav');
-    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
-    const data = await res.json();
-    setStatus(`پاسخ سرور: ${JSON.stringify(data)}`);
-  } catch (e) {
-    setStatus(`خطای شبکه: ${e}`);
-  }
-}}>تست ارتباط</button>
-
-
   );
 }

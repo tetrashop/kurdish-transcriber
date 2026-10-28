@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-// کاهش زمان اجرا برای جلوگیری از خطای 502 در صورت عدم پاسخ هرمز
-export const maxDuration = 10; 
-
-const MODEL = 'openai/whisper-large-v3';
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.HORMOUS_API_KEY;
@@ -20,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   const upstream = new FormData();
   upstream.append('file', file, 'chunk.wav');
-  upstream.append('model', MODEL);
+  upstream.append('model', 'openai/whisper-large-v3');
   upstream.append('language', 'ku');
   upstream.append('task', 'transcribe');
   upstream.append('response_format', 'json');
@@ -35,7 +32,6 @@ export async function POST(req: NextRequest) {
     
     if (!res.ok) {
       const err = await res.text();
-      // این خطا را به سمت مرورگر برمی‌گردانیم تا در نوار وضعیت ببینیم
       return NextResponse.json({ error: `Hormouz ${res.status}: ${err}` }, { status: res.status });
     }
     
