@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+export const maxDuration = 60; // حداکثر زمان مجاز در پلن Hobby
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.HUGGINGFACE_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'HUGGINGFACE_API_KEY is missing in Vercel' }, { status: 500 });
+    return NextResponse.json({ error: 'HUGGINGFACE_API_KEY missing' }, { status: 500 });
   }
 
   const form = await req.formData();
@@ -16,30 +16,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // استفاده از مدل Whisper مخصوص کردی سورانی روی Hugging Face
-    const res = await fetch(
-      'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'audio/wav',
-        },
-        body: file,
-      }
-    );
+    // استفاده از query parameter برای language=persian (طبق مستندات مدل)
+    const url = 'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2?language=persian';
+    
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'audio/wav',
+        'x-wait-for-model': 'true', // منتظر بارگذاری مدل بمان
+      },
+      body: file,
+    });
     
     if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: `HF ${res.status}: ${err}` }, { status: res.status });
+      const errText = await res.text();
+      return NextResponse.json({ error: `HF ${res.status}: ${errText}` }, { status: res.status });
     }
     
     const data = await res.json();
-    // خروجی ممکن است مستقیماً text باشد یا در آرایه باشد
-    const text = data.text || data[0]?.transcription || '';
+    // ساختار پاسخ ممکن است text باشد یا آرایه‌ای از chunks
+    const text = data.text || data[0]?.text || '';
     return NextResponse.json({ text });
     
   } catch (e: any) {
-    return NextResponse.json({ error: `Network Error: ${e.message}` }, { status: 502 });
+    return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
   }
 }
