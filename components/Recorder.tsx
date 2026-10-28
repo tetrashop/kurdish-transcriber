@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 import Transcript, { type Segment } from './Transcript';
 
-const CHUNK_MS = 2500;
-const MIN_CHUNK_SAMPLES = 16000 * 0.4;
+// افزایش زمان به 4 ثانیه تا مدل فرصت کافی برای پردازش داشته باشد
+const CHUNK_MS = 4000; 
+const MIN_CHUNK_SAMPLES = 16000 * 0.5;
 
 export default function Recorder() {
   const [recording, setRecording] = useState(false);
@@ -34,13 +35,31 @@ export default function Recorder() {
     const resampled = resampleTo16k(merged, rateRef.current);
     const wav = encodeWAV(resampled, 16000);
 
+    // صف را با مدیریت خطا و تایم‌اوت همراه می‌کنیم تا قفل نشود
     queueRef.current = queueRef.current.then(async () => {
       try {
-        setStatus('در حال تبدیل…');
+        setStatus('در حال ارسال به سرور…');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 ثانیه تایم‌اوت
+
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
-        const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+        
+        const res = await fetch('/api/transcribe', { 
+          method: 'POST', 
+          body: fd,
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         const data = await res.json();
+
+        if (data.error) {
+          setStatus(`خطای سرور: ${String(data.error).slice(0, 60)}...`);
+          return; // خروج از تابع تا درخواست بعدی پردازش شود
+        }
+
         if (data.text?.trim()) {
           setSegments((prev) => [...prev, {
             id: crypto.randomUUID(),
@@ -48,17 +67,19 @@ export default function Recorder() {
             speaker: 'گوینده',
             ts: Date.now(),
           }]);
-          setStatus('در حال شنیدن…');
-        } else if (data.error) {
-          setStatus(`خطا: ${String(data.error).slice(0, 80)}`);
-        } else {
-          setStatus('در حال شنیدن…');
         }
-      } catch (err) {
-        console.error(err);
-        setStatus('خطا در تبدیل');
+        setStatus('در حال شنیدن…');
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          setStatus('خطا: زمان پاسخگویی سرور به پایان رسید');
+        } else {
+          setStatus('خطا در ارتباط با سرور');
+          console.error(err);
+        }
       }
     });
+    
+    // منتظر ماندن برای تکمیل درخواست قبلی
     await queueRef.current;
   }, []);
 
@@ -76,19 +97,21 @@ export default function Recorder() {
       const ctx = new AudioContext();
       ctxRef.current = ctx;
       rateRef.current = ctx.sampleRate;
+      
       const source = ctx.createMediaStreamSource(stream);
       const processor = ctx.createScriptProcessor(4096, 1, 1);
+      
       processor.onaudioprocess = (e) => {
         bufferRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
-      const mute = ctx.createGain();
-      mute.gain.value = 0;
+      
+      // اتصال خروجی به مقصد برای اجرای صحیح در کروم اندروید
       source.connect(processor);
-      processor.connect(mute);
-      mute.connect(ctx.destination);
+      processor.connect(ctx.destination);
+      
       timerRef.current = setInterval(flush, CHUNK_MS);
       setRecording(true);
-      setStatus('در حال شنیدن…');
+      setStatus('در حال شنیدن… (صدا را در گوشی ضبط می‌کند)');
     } catch (err) {
       console.error(err);
       setStatus('دسترسی به میکروفون رد شد');
