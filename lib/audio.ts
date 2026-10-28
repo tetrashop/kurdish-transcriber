@@ -41,7 +41,7 @@ export function resampleTo16k(input: Float32Array, inputRate: number): Float32Ar
   return out;
 }
 
-export function hasSpeech(samples: Float32Array, threshold = 0.008): boolean {
+export function hasSpeech(samples: Float32Array, threshold = 0.002): boolean {
   let sum = 0;
   for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
   return Math.sqrt(sum / samples.length) > threshold;

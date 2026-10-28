@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   upstream.append('file', file, 'chunk.wav');
   upstream.append('model', MODEL);
   upstream.append('language', 'ku');
+  upstream.append('task', 'transcribe');
   upstream.append('response_format', 'json');
   upstream.append('temperature', '0');
 
@@ -32,11 +33,13 @@ export async function POST(req: NextRequest) {
     });
     if (!res.ok) {
       const err = await res.text();
-      return NextResponse.json({ error: err }, { status: res.status });
+      console.error('Hormouz error:', res.status, err);
+      return NextResponse.json({ error: err, status: res.status }, { status: res.status });
     }
     const data = await res.json();
     return NextResponse.json({ text: data.text ?? '' });
-  } catch (e) {
-    return NextResponse.json({ error: 'upstream failed' }, { status: 502 });
+  } catch (e: any) {
+    console.error('Upstream fetch failed:', e?.message);
+    return NextResponse.json({ error: 'upstream failed', detail: String(e) }, { status: 502 });
   }
 }

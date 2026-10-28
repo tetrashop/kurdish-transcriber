@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 import Transcript, { type Segment } from './Transcript';
 
-const CHUNK_MS = 2000;
+const CHUNK_MS = 2500;
 const MIN_CHUNK_SAMPLES = 16000 * 0.4;
 
 export default function Recorder() {
@@ -48,8 +48,12 @@ export default function Recorder() {
             speaker: 'گوینده',
             ts: Date.now(),
           }]);
+          setStatus('در حال شنیدن…');
+        } else if (data.error) {
+          setStatus(`خطا: ${String(data.error).slice(0, 80)}`);
+        } else {
+          setStatus('در حال شنیدن…');
         }
-        setStatus('در حال شنیدن…');
       } catch (err) {
         console.error(err);
         setStatus('خطا در تبدیل');
@@ -61,7 +65,12 @@ export default function Recorder() {
   const start = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: true,
+          channelCount: 1,
+        },
       });
       streamRef.current = stream;
       const ctx = new AudioContext();
