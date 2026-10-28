@@ -16,26 +16,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const url = 'https://api-inference.huggingface.co/models/rzgar/whisper-large-v3-sorani-kurdish-ckb-v2?language=persian';
-    
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'audio/wav',
-        'x-wait-for-model': 'true',
-      },
-      body: file,
-    });
-    
+    const res = await fetch(
+      'https://api-inference.huggingface.co/models/openai/whisper-large-v3?language=ku',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'audio/wav',
+          'x-wait-for-model': 'true',
+        },
+        body: file,
+      }
+    );
+
     if (!res.ok) {
       const errText = await res.text();
       return NextResponse.json({ error: `HF ${res.status}: ${errText.slice(0, 200)}` }, { status: res.status });
     }
-    
+
     const data = await res.json();
     return NextResponse.json({ text: data.text || '' });
-    
+
   } catch (e: any) {
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
   }
