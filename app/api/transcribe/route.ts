@@ -4,9 +4,9 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.DEEPINFRA_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'GROQ_API_KEY missing in Vercel' }, { status: 500 });
+    return NextResponse.json({ error: 'DEEPINFRA_API_KEY missing in Vercel' }, { status: 500 });
   }
 
   const form = await req.formData();
@@ -17,17 +17,13 @@ export async function POST(req: NextRequest) {
 
   const upstream = new FormData();
   upstream.append('file', file, 'chunk.wav');
-  upstream.append('model', 'whisper-large-v3');
-  
-  // استفاده از کد زبان فارسی به جای کردی چون Groq کردی را پشتیبانی نمی‌کند
-  // این کار باعث می‌شود مدل از الفبای درست (عربی-فارسی) استفاده کند
-  upstream.append('language', 'fa'); 
-  
+  upstream.append('model', 'openai/whisper-large-v3');
+  upstream.append('language', 'ku');
   upstream.append('response_format', 'json');
   upstream.append('temperature', '0');
 
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    const res = await fetch('https://api.deepinfra.com/v1/openai/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
       body: upstream,
@@ -35,7 +31,7 @@ export async function POST(req: NextRequest) {
     
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json({ error: `Groq ${res.status}: ${errText.slice(0, 150)}` }, { status: res.status });
+      return NextResponse.json({ error: `DeepInfra ${res.status}: ${errText.slice(0, 100)}` }, { status: res.status });
     }
     
     const data = await res.json();
