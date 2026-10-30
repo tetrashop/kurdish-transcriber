@@ -16,14 +16,13 @@ export async function POST(req: NextRequest) {
   }
 
   const upstream = new FormData();
-  upstream.append('file', file, 'chunk.wav');
-  upstream.append('model', 'openai/whisper-large-v3');
-  upstream.append('language', 'ku');
-  upstream.append('response_format', 'json');
-  upstream.append('temperature', '0');
+  // طبق مستندات رسمی DeepInfra، فیلد باید 'audio' باشد
+  upstream.append('audio', file, 'chunk.wav');
+  upstream.append('language', 'ku'); // زبان کردی
 
   try {
-    const res = await fetch('https://api.deepinfra.com/v1/openai/audio/transcriptions', {
+    // استفاده از endpoint مخصوص inference (نه openai)
+    const res = await fetch('https://api.deepinfra.com/v1/inference/openai/whisper-large-v3', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
       body: upstream,
