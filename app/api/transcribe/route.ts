@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json({ error: `DeepInfra ${res.status}: ${errText.slice(0, 100)}` }, { status: res.status });
+      return NextResponse.json({ error: `DeepInfra ${res.status}: ${errText.slice(0, 200)}` }, { status: res.status });
     }
     
     const data = await res.json();
