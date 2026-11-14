@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 7000; // ۷ ثانیه زمان مناسب
-const MIN_CHUNK_SAMPLES = 16000 * 1.0;
+const CHUNK_MS = 10000; // ۱۰ ثانیه برای فرصت بیشتر به مدل
+const MIN_CHUNK_SAMPLES = 16000 * 1.5;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
@@ -30,7 +30,8 @@ export default function Recorder() {
     for (const b of chunks) { merged.set(b, off); off += b.length; }
     bufferRef.current = [];
 
-    if (!hasSpeech(merged)) return;
+    // فیلتر اولیه در سمت مرورگر
+    if (!hasSpeech(merged, 0.005)) return;
 
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
@@ -57,7 +58,7 @@ export default function Recorder() {
           setStatus('در حال شنیدن…');
         }
       } catch (err) { 
-        setStatus('خطای شبکه یا سرور'); 
+        setStatus('خطای شبکه');
       }
     });
     await queueRef.current;
@@ -80,28 +81,17 @@ export default function Recorder() {
       timerRef.current = setInterval(flush, CHUNK_MS);
       setRecording(true);
       setStatus('در حال شنیدن…');
-    } catch (err) { setStatus('دسترسی به میکروفون رد شد'); }
+    } catch (err) { setStatus('دسترسی رد شد'); }
   };
 
   const stop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
     await flush();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     await ctxRef.current?.close();
-    ctxRef.current = null;
-    streamRef.current = null;
     setRecording(false);
     setStatus('متوقف شد');
   };
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      ctxRef.current?.close();
-    };
-  }, []);
 
   return (
     <div className="panel">
