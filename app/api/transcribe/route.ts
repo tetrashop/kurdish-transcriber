@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با مدل فوق‌العاده قوی Llama 3.3 (70B) و پرامپت بسیار دقیق
+    // ۲. ترجمه با مدل جدید و قدرتمند openai/gpt-oss-120b
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile', // مدل ۷۰ میلیاردی، بسیار باهوش‌تر
+        model: 'openai/gpt-oss-120b', // مدل جایگزین رسمی
         messages: [
           { 
             role: 'system', 
@@ -76,6 +76,10 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    // مدیریت خطای 404 (مدل یافت نشد) و 429 (محدودیت سرعت)
+    if (llmRes.status === 404) {
+        return NextResponse.json({ kurdish: originalText, persian: '⚠️ مدل ترجمه در دسترس نیست (به‌روزرسانی لازم است)' });
+    }
     if (llmRes.status === 429) {
         return NextResponse.json({ kurdish: originalText, persian: '⏳ محدودیت سرعت سرور' });
     }
