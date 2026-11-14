@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const upstream = new FormData();
   upstream.append('file', file, 'chunk.wav');
   upstream.append('model', 'whisper-large-v3');
-  upstream.append('language', 'fa'); // مجبوریم fa بگذاریم چون Groq کردی ندارد
+  upstream.append('language', 'fa');
   upstream.append('response_format', 'json');
   upstream.append('temperature', '0');
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. اصلاح و ترجمه با مدل جدید Llama 3.1
+    // ۲. اصلاح و ترجمه با مدل جدید و معتبر Groq
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant', // مدل جدید و سریع
+        model: 'openai/gpt-oss-20b', // مدل جایگزین پیشنهادی Groq
         messages: [
           { 
             role: 'system', 
@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
         const parsed = JSON.parse(llmData.choices[0].message.content);
         return NextResponse.json({ kurdish: parsed.kurdish || originalText, persian: parsed.persian || 'نامشخص' });
     } catch (parseError) {
-        // اگر مدل خروجی را درست فرمت نکرد
         return NextResponse.json({ kurdish: originalText, persian: llmData.choices[0].message.content });
     }
     
