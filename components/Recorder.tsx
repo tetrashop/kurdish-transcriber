@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 10000; // ۱۰ ثانیه برای جلوگیری از قطع کلمات
+const CHUNK_MS = 7000; // ۷ ثانیه زمان مناسب
 const MIN_CHUNK_SAMPLES = 16000 * 1.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
@@ -39,6 +39,7 @@ export default function Recorder() {
         setStatus('در حال پردازش…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
+        
         const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
         const data = await res.json();
         
@@ -55,7 +56,9 @@ export default function Recorder() {
         } else {
           setStatus('در حال شنیدن…');
         }
-      } catch (err) { setStatus('خطای شبکه'); }
+      } catch (err) { 
+        setStatus('خطای شبکه یا سرور'); 
+      }
     });
     await queueRef.current;
   }, []);
@@ -77,17 +80,28 @@ export default function Recorder() {
       timerRef.current = setInterval(flush, CHUNK_MS);
       setRecording(true);
       setStatus('در حال شنیدن…');
-    } catch (err) { setStatus('دسترسی رد شد'); }
+    } catch (err) { setStatus('دسترسی به میکروفون رد شد'); }
   };
 
   const stop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
     await flush();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     await ctxRef.current?.close();
+    ctxRef.current = null;
+    streamRef.current = null;
     setRecording(false);
     setStatus('متوقف شد');
   };
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      ctxRef.current?.close();
+    };
+  }, []);
 
   return (
     <div className="panel">
@@ -99,7 +113,7 @@ export default function Recorder() {
       </div>
       
       <div className="transcript" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        {segments.length === 0 && <div style={{ textAlign: 'center', color: '#8b949e' }}>هنوز متنی دریافت نشده…</div>}
+        {segments.length === 0 && <div style={{ textAlign: 'center', color: '#8b949e', padding: '20px' }}>هنوز متنی دریافت نشده…</div>}
         {segments.map((s) => (
           <div key={s.id} style={{ padding: '15px', borderBottom: '1px solid #21262d', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>

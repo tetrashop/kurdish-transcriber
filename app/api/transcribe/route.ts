@@ -19,8 +19,7 @@ export async function POST(req: NextRequest) {
   const upstream = new FormData();
   upstream.append('file', file, 'chunk.wav');
   upstream.append('model', 'whisper-large-v3');
-  upstream.append('language', 'fa'); // استفاده از الفبای فارسی برای شبیه‌سازی کردی سورانی
-  upstream.append('prompt', 'ئەمە گفتوگۆیەکی کوردییە. تکایە بە کوردی بنووسە.'); // راهنمای مدل
+  upstream.append('language', 'fa'); // مجبوریم fa بگذاریم چون Groq کردی ندارد
   upstream.append('response_format', 'json');
   upstream.append('temperature', '0');
 
@@ -37,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه به فارسی و اصلاح متن با مدل Llama 3
+    // ۲. اصلاح و ترجمه با مدل جدید Llama 3.1
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -45,11 +44,11 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192',
+        model: 'llama-3.1-8b-instant', // مدل جدید و سریع
         messages: [
           { 
             role: 'system', 
-            content: 'شما یک مترجم خبره کردی به فارسی هستید. متن دریافتی (که ممکن است با الفبای فارسی نوشته شده باشد اما واژگان کردی باشد) را به فارسی روان ترجمه کنید. خروجی شما باید دقیقاً یک فرمت JSON با کلیدهای "kurdish" (متن اصلی) و "persian" (ترجمه فارسی) باشد.' 
+            content: 'شما یک مترجم خبره کردی سورانی به فارسی هستید. متن زیر توسط سیستم تشخیص گفتار تولید شده و ممکن است پر از غلط املایی یا کلمات نامفهوم فارسی باشد (چون صدا کردی بوده). لطفاً مفهوم را حدس بزنید، متن کردی صحیح را بنویسید و آن را به فارسی روان ترجمه کنید. خروجی شما باید دقیقاً یک فرمت JSON معتبر با کلیدهای "kurdish" (متن اصلاح‌شده کردی) و "persian" (ترجمه فارسی) باشد.' 
           },
           { role: 'user', content: originalText }
         ],
@@ -59,13 +58,19 @@ export async function POST(req: NextRequest) {
     });
 
     if (!llmRes.ok) {
-        // اگر ترجمه خطا داد، حداقل متن اصلی را برگردان
-        return NextResponse.json({ kurdish: originalText, persian: 'ترجمه در دسترس نیست' });
+        const err = await llmRes.text();
+        return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${err.slice(0,50)}` });
     }
 
     const llmData = await llmRes.json();
-    const parsed = JSON.parse(llmData.choices[0].message.content);
-    return NextResponse.json({ kurdish: parsed.kurdish || originalText, persian: parsed.persian || '' });
+    
+    try {
+        const parsed = JSON.parse(llmData.choices[0].message.content);
+        return NextResponse.json({ kurdish: parsed.kurdish || originalText, persian: parsed.persian || 'نامشخص' });
+    } catch (parseError) {
+        // اگر مدل خروجی را درست فرمت نکرد
+        return NextResponse.json({ kurdish: originalText, persian: llmData.choices[0].message.content });
+    }
     
   } catch (e: any) {
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
