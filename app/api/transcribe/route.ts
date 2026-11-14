@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof Blob)) return NextResponse.json({ error: 'audio file missing' }, { status: 400 });
 
   try {
-    // ۱. رونویسی
+    // ۱. رونویسی (STT)
     const upstream = new FormData();
     upstream.append('file', file, 'chunk.wav');
     upstream.append('model', 'whisper-large-v3');
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با مدل جدید و قدرتمند openai/gpt-oss-120b
+    // ۲. ترجمه با پرامپت مبتنی بر مثال (Few-Shot) برای درک بهتر کردیِ نوشته‌شده با حروف فارسی
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -63,37 +63,45 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b', // مدل جایگزین رسمی
+        model: 'openai/gpt-oss-120b', 
         messages: [
           { 
             role: 'system', 
-            content: 'You are a native Kurdish (Sorani) speaker and an expert translator. The user will provide a phonetic transcription of spoken Kurdish written using the Persian alphabet. Note that this text is NOT Persian; it is Kurdish pronounced and written with Persian letters. First, figure out the intended Kurdish meaning. Second, translate it into fluent, natural Persian. If the text is completely nonsensical, reply with "متن نامفهوم است". Otherwise, provide ONLY the Persian translation.' 
+            content: `You are an expert translator of Kurdish (Sorani) to Persian. 
+The input text you receive is a phonetic transcription of spoken Kurdish, written using the Persian alphabet. It looks like misspelled Persian, but it is actually Kurdish. 
+Your task is to decode the intended Kurdish meaning and translate it to fluent Persian. 
+Do NOT say the text is unintelligible. Just do your best to infer the meaning.
+
+Here are some examples of how to process it:
+Example 1:
+Input: "شوینواری ورگردی"
+Output: "به جای شاعری برگشتی"
+
+Example 2:
+Input: "لکسانه اگوکو حافظ و سعدی"
+Output: "از کسانی که به حافظ و سعدی گوش می‌دهند"
+
+Example 3:
+Input: "شیخه خزرکانی حافظ نبیستیتو"
+Output: "شیخ خزرکانی، حافظ را نشنیده‌ای"
+
+Now, translate the user's input. Output ONLY the Persian translation.`
           },
           { role: 'user', content: originalText }
         ],
-        temperature: 0.2,
-        max_tokens: 300,
+        temperature: 0.3,
+        max_tokens: 400,
       }),
     });
 
-    // مدیریت خطای 404 (مدل یافت نشد) و 429 (محدودیت سرعت)
-    if (llmRes.status === 404) {
-        return NextResponse.json({ kurdish: originalText, persian: '⚠️ مدل ترجمه در دسترس نیست (به‌روزرسانی لازم است)' });
-    }
-    if (llmRes.status === 429) {
-        return NextResponse.json({ kurdish: originalText, persian: '⏳ محدودیت سرعت سرور' });
-    }
-
-    if (!llmRes.ok) {
-        return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${llmRes.status}` });
-    }
+    if (llmRes.status === 404) return NextResponse.json({ kurdish: originalText, persian: '⚠️ مدل در دسترس نیست' });
+    if (llmRes.status === 429) return NextResponse.json({ kurdish: originalText, persian: '⏳ محدودیت سرعت' });
+    if (!llmRes.ok) return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${llmRes.status}` });
 
     const llmData = await llmRes.json();
     let persianText = llmData.choices[0].message.content?.trim();
 
-    if (!persianText) {
-        persianText = 'ترجمه‌ای یافت نشد (خروجی مدل خالی بود)';
-    }
+    if (!persianText) persianText = 'ترجمه‌ای یافت نشد';
 
     return NextResponse.json({ kurdish: originalText, persian: persianText });
     
