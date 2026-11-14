@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با پرامپت قوی‌تر
+    // ۲. ترجمه با مدل فوق‌العاده قوی Llama 3.3 (70B) و پرامپت بسیار دقیق
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -63,16 +63,16 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-20b', 
+        model: 'llama-3.3-70b-versatile', // مدل ۷۰ میلیاردی، بسیار باهوش‌تر
         messages: [
           { 
             role: 'system', 
-            content: 'You are an expert Kurdish (Sorani) to Persian translator. The user will provide a phonetic transcription of spoken Kurdish written in Persian letters. Your task is to understand the intended meaning and translate it into fluent, natural Persian. Do not repeat the original text. Output ONLY the Persian translation and nothing else. Even if the text seems incomplete, provide your best guess translation.' 
+            content: 'You are a native Kurdish (Sorani) speaker and an expert translator. The user will provide a phonetic transcription of spoken Kurdish written using the Persian alphabet. Note that this text is NOT Persian; it is Kurdish pronounced and written with Persian letters. First, figure out the intended Kurdish meaning. Second, translate it into fluent, natural Persian. If the text is completely nonsensical, reply with "متن نامفهوم است". Otherwise, provide ONLY the Persian translation.' 
           },
           { role: 'user', content: originalText }
         ],
-        temperature: 0.3, // کمی افزایش دما برای جلوگیری از خروجی خالی
-        max_tokens: 250,
+        temperature: 0.2,
+        max_tokens: 300,
       }),
     });
 
@@ -87,9 +87,8 @@ export async function POST(req: NextRequest) {
     const llmData = await llmRes.json();
     let persianText = llmData.choices[0].message.content?.trim();
 
-    // اگر مدل خروجی خالی داد
     if (!persianText) {
-        persianText = 'ترجمه‌ای یافت نشد (متن نامفهوم است)';
+        persianText = 'ترجمه‌ای یافت نشد (خروجی مدل خالی بود)';
     }
 
     return NextResponse.json({ kurdish: originalText, persian: persianText });
