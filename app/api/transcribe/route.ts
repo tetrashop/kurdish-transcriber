@@ -33,11 +33,11 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof Blob)) return NextResponse.json({ error: 'audio file missing' }, { status: 400 });
 
   try {
-    // ۱. رونویسی با Whisper
+    // ۱. رونویسی با Whisper (بدون تغییر)
     const upstream = new FormData();
     upstream.append('file', file, 'chunk.wav');
     upstream.append('model', 'whisper-large-v3');
-    upstream.append('language', 'fa'); 
+    upstream.append('language', 'fa');
     upstream.append('response_format', 'json');
     upstream.append('temperature', '0');
 
@@ -53,19 +53,19 @@ export async function POST(req: NextRequest) {
 
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با مدل رسمی جایگزین Llama 3.1
+    // ۲. ترجمه با مدل جدید openai/gpt-oss-20b
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 
+      headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant', 
+        model: 'openai/gpt-oss-20b', // مدل جایگزین و در دسترس
         messages: [
-          { 
-            role: 'system', 
-            content: 'You are a Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of Kurdish speech written in Persian alphabet. Infer the meaning and translate it to fluent Persian. Output ONLY the Persian translation, nothing else.' 
+          {
+            role: 'system',
+            content: 'You are a Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of Kurdish speech written in Persian alphabet. Infer the meaning and translate it to fluent Persian. Output ONLY the Persian translation, nothing else.'
           },
           { role: 'user', content: originalText }
         ],
@@ -73,7 +73,6 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    // اگر خطا داد، این بار دقیقا متن خطا را نشان می‌دهیم تا مشکل را ببینیم
     if (!llmRes.ok) {
         const errText = await llmRes.text();
         return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${errText.slice(0, 80)}` });
@@ -83,7 +82,7 @@ export async function POST(req: NextRequest) {
     let persianText = llmData.choices[0].message.content.trim();
 
     return NextResponse.json({ kurdish: originalText, persian: persianText });
-    
+
   } catch (e: any) {
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
   }
