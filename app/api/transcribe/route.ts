@@ -21,9 +21,7 @@ function isRateLimited(ip: string): boolean {
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for') || 'unknown';
-  if (isRateLimited(ip)) {
-    return NextResponse.json({ error: 'محدودیت درخواست (Rate Limit)' }, { status: 429 });
-  }
+  if (isRateLimited(ip)) return NextResponse.json({ error: 'Rate Limit' }, { status: 429 });
 
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'GROQ_API_KEY missing' }, { status: 500 });
@@ -33,6 +31,7 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof Blob)) return NextResponse.json({ error: 'audio file missing' }, { status: 400 });
 
   try {
+    // ۱. رونویسی
     const upstream = new FormData();
     upstream.append('file', file, 'chunk.wav');
     upstream.append('model', 'whisper-large-v3');
@@ -50,13 +49,13 @@ export async function POST(req: NextRequest) {
     const sttData = await sttRes.json();
     let originalText = sttData.text?.trim() || '';
 
-    // فیلتر کردن شدید توهم‌زنی‌ها (شامل PYM JBZ)
-    const gibberish = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you', 'PYM', 'JBZ', 'شکر'];
+    const gibberish = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you', 'PYM', 'JBZ'];
     if (gibberish.some(g => originalText.toUpperCase().includes(g.toUpperCase())) && originalText.length < 40) {
         return NextResponse.json({ kurdish: '', persian: '' }); 
     }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
+    // ۲. ترجمه با پرامپت قوی‌تر
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -68,18 +67,17 @@ export async function POST(req: NextRequest) {
         messages: [
           { 
             role: 'system', 
-            content: 'You are a Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of Kurdish speech written in Persian alphabet. Infer the meaning and translate it to fluent Persian. Output ONLY the Persian translation.' 
+            content: 'You are an expert Kurdish (Sorani) to Persian translator. The user will provide a phonetic transcription of spoken Kurdish written in Persian letters. Your task is to understand the intended meaning and translate it into fluent, natural Persian. Do not repeat the original text. Output ONLY the Persian translation and nothing else. Even if the text seems incomplete, provide your best guess translation.' 
           },
           { role: 'user', content: originalText }
         ],
-        temperature: 0.1,
-        max_tokens: 150, // محدود کردن خروجی برای صرفه‌جویی در توکن
+        temperature: 0.3, // کمی افزایش دما برای جلوگیری از خروجی خالی
+        max_tokens: 250,
       }),
     });
 
-    // مدیریت خطای Rate Limit (429) بدون شکستن برنامه
     if (llmRes.status === 429) {
-        return NextResponse.json({ kurdish: originalText, persian: '⏳ ترجمه به دلیل محدودیت سرعت به تعویق افتاد' });
+        return NextResponse.json({ kurdish: originalText, persian: '⏳ محدودیت سرعت سرور' });
     }
 
     if (!llmRes.ok) {
@@ -87,7 +85,12 @@ export async function POST(req: NextRequest) {
     }
 
     const llmData = await llmRes.json();
-    let persianText = llmData.choices[0].message.content.trim();
+    let persianText = llmData.choices[0].message.content?.trim();
+
+    // اگر مدل خروجی خالی داد
+    if (!persianText) {
+        persianText = 'ترجمه‌ای یافت نشد (متن نامفهوم است)';
+    }
 
     return NextResponse.json({ kurdish: originalText, persian: persianText });
     

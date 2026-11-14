@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 15000; // افزایش به ۱۵ ثانیه برای کاهش مصرف API
+const CHUNK_MS = 15000; 
 const MIN_CHUNK_SAMPLES = 16000 * 2.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
@@ -30,7 +30,6 @@ export default function Recorder() {
     for (const b of chunks) { merged.set(b, off); off += b.length; }
     bufferRef.current = [];
 
-    // آستانه بالاتر برای جلوگیری از ارسال نویز رادیو
     if (!hasSpeech(merged, 0.015)) return;
 
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
@@ -135,7 +134,7 @@ export default function Recorder() {
               {s.kurdish}
             </div>
             <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
-              ترجمه: {s.persian}
+              ترجمه: {s.persian || '⏳ در حال پردازش...'}
             </div>
           </div>
         ))}
