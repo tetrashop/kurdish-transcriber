@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 10000; 
-const MIN_CHUNK_SAMPLES = 16000 * 1.5;
+const CHUNK_MS = 15000; // افزایش به ۱۵ ثانیه برای کاهش مصرف API
+const MIN_CHUNK_SAMPLES = 16000 * 2.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
@@ -30,13 +30,14 @@ export default function Recorder() {
     for (const b of chunks) { merged.set(b, off); off += b.length; }
     bufferRef.current = [];
 
-    if (!hasSpeech(merged, 0.01)) return;
+    // آستانه بالاتر برای جلوگیری از ارسال نویز رادیو
+    if (!hasSpeech(merged, 0.015)) return;
 
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       try {
         setStatus('در حال پردازش…');
@@ -67,7 +68,7 @@ export default function Recorder() {
         }
       } catch (err: any) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError') setStatus('خطا: تایم‌اوت سرور');
+        if (err.name === 'AbortError') setStatus('خطا: تایم‌اوت');
         else setStatus('خطای شبکه');
       }
     });
