@@ -51,13 +51,9 @@ export async function POST(req: NextRequest) {
     const sttData = await sttRes.json();
     let originalText = sttData.text?.trim() || '';
 
-    const hallucinations = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you'];
-    if (hallucinations.some(h => originalText.includes(h)) && originalText.length < 40) {
-        return NextResponse.json({ kurdish: '', persian: '' }); 
-    }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با مدل جدید و پایدار openai/gpt-oss-20b
+    // ۲. ترجمه با مدل رسمی جایگزین Llama 3.1
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -65,11 +61,11 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-20b', 
+        model: 'llama-3.1-8b-instant', 
         messages: [
           { 
             role: 'system', 
-            content: 'You are a Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of Kurdish speech written in Persian alphabet. First, infer the intended Kurdish meaning. Second, translate it to fluent Persian. Output ONLY the Persian translation, nothing else.' 
+            content: 'You are a Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of Kurdish speech written in Persian alphabet. Infer the meaning and translate it to fluent Persian. Output ONLY the Persian translation, nothing else.' 
           },
           { role: 'user', content: originalText }
         ],
@@ -77,9 +73,10 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    // اگر خطا داد، این بار دقیقا متن خطا را نشان می‌دهیم تا مشکل را ببینیم
     if (!llmRes.ok) {
         const errText = await llmRes.text();
-        return NextResponse.json({ kurdish: originalText, persian: `خطای Groq: ${errText.slice(0, 60)}` });
+        return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${errText.slice(0, 80)}` });
     }
 
     const llmData = await llmRes.json();
