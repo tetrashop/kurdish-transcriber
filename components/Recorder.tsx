@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
-import Transcript, { type Segment } from './Transcript';
 
-const CHUNK_MS = 8000; // ۸ ثانیه برای جلوگیری از توهم مدل
+const CHUNK_MS = 10000; // ۱۰ ثانیه برای جلوگیری از قطع کلمات
 const MIN_CHUNK_SAMPLES = 16000 * 1.0;
+
+type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
 export default function Recorder() {
   const [recording, setRecording] = useState(false);
@@ -31,48 +32,30 @@ export default function Recorder() {
 
     if (!hasSpeech(merged)) return;
 
-    const resampled = resampleTo16k(merged, rateRef.current);
-    const wav = encodeWAV(resampled, 16000);
+    const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-
       try {
-        setStatus('در حال تبدیل…');
+        setStatus('در حال پردازش…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
-        
-        const res = await fetch('/api/transcribe', { 
-          method: 'POST', 
-          body: fd,
-          signal: controller.signal 
-        });
-        
-        clearTimeout(timeoutId);
+        const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
         const data = await res.json();
         
         if (data.error) {
-           setStatus(`خطا: ${String(data.error).slice(0, 50)}`);
-        } else if (data.text?.trim()) {
+           setStatus(`خطا: ${String(data.error).slice(0, 40)}`);
+        } else if (data.kurdish?.trim()) {
           setSegments((prev) => [...prev, {
             id: crypto.randomUUID(),
-            text: data.text.trim(),
-            speaker: 'گوینده',
+            kurdish: data.kurdish.trim(),
+            persian: data.persian.trim(),
             ts: Date.now(),
           }]);
           setStatus('در حال شنیدن…');
         } else {
           setStatus('در حال شنیدن…');
         }
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-          setStatus('خطا: پاسخ سرور طول کشید (تایم‌اوت)');
-        } else {
-          setStatus('خطای شبکه');
-        }
-      }
+      } catch (err) { setStatus('خطای شبکه'); }
     });
     await queueRef.current;
   }, []);
@@ -88,48 +71,49 @@ export default function Recorder() {
       rateRef.current = ctx.sampleRate;
       const source = ctx.createMediaStreamSource(stream);
       const processor = ctx.createScriptProcessor(4096, 1, 1);
-      processor.onaudioprocess = (e) => {
-        bufferRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      };
+      processor.onaudioprocess = (e) => bufferRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       source.connect(processor);
       processor.connect(ctx.destination);
       timerRef.current = setInterval(flush, CHUNK_MS);
       setRecording(true);
       setStatus('در حال شنیدن…');
-    } catch (err) {
-      setStatus('دسترسی رد شد');
-    }
+    } catch (err) { setStatus('دسترسی رد شد'); }
   };
 
   const stop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
     await flush();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     await ctxRef.current?.close();
-    ctxRef.current = null;
-    streamRef.current = null;
     setRecording(false);
     setStatus('متوقف شد');
   };
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      ctxRef.current?.close();
-    };
-  }, []);
-
   return (
     <div className="panel">
-      <div className="controls">
+      <div className="controls" style={{ marginBottom: '20px' }}>
         <button onClick={recording ? stop : start}>
           {recording ? '⏹ توقف' : '🎙 شروع'}
         </button>
-        <span className="status">{status}</span>
+        <span className="status" style={{ marginRight: '15px', color: '#8b949e' }}>{status}</span>
       </div>
-      <Transcript segments={segments} />
+      
+      <div className="transcript" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        {segments.length === 0 && <div style={{ textAlign: 'center', color: '#8b949e' }}>هنوز متنی دریافت نشده…</div>}
+        {segments.map((s) => (
+          <div key={s.id} style={{ padding: '15px', borderBottom: '1px solid #21262d', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <span style={{ fontSize: '11px', color: '#58a6ff', background: '#0d419d33', padding: '2px 8px', borderRadius: '999px' }}>گوینده</span>
+            </div>
+            <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>
+              {s.kurdish}
+            </div>
+            <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
+              ترجمه: {s.persian}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
