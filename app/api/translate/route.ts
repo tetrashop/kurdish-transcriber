@@ -5,9 +5,10 @@ import { Redis } from '@upstash/redis';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+// اتصال به درگاه 1xAi
 const client = new OpenAI({
   baseURL: 'https://1xai.ir/v1',
-  apiKey: process.env.ONE_X_AI_API_KEY,
+  apiKey: process.env.ONE_X_AI_API_KEY || 'missing-key',
 });
 
 const redis = Redis.fromEnv();
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const completion = await client.chat.completions.create({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-pro', // مدل از طریق درگاه 1xAi
       messages: [
         { 
           role: 'system', 
