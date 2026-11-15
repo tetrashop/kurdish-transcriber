@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Redis } from '@upstash/redis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -8,6 +9,21 @@ export async function POST(req: NextRequest) {
     const userCode = req.headers.get('x-user-code');
     if (!userCode) return NextResponse.json({ persian: 'کد دسترسی وارد نشده است.' }, { status: 401 });
 
+    // پیدا کردن نام متغیرها (چه با UPSTASH شروع شوند چه با KV)
+    const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+    if (!redisUrl || !redisToken) {
+      return NextResponse.json({ persian: 'خطای دیتابیس: کلیدهای Redis در Vercel پیدا نشدند.' });
+    }
+
+    const redis = new Redis({ url: redisUrl, token: redisToken });
+
+    const credits = await redis.get<number>(`credits:${userCode}`);
+    if (credits === null || credits <= 0) {
+      return NextResponse.json({ persian: 'اعتبار شما به پایان رسیده است.' }, { status: 403 });
+    }
+
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
@@ -15,7 +31,7 @@ export async function POST(req: NextRequest) {
 Translate the phonetic Kurdish input to fluent Persian.
 Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "persian translation"}`;
 
-    // اتصال ۱۰۰٪ مستقیم به Groq
+    // اتصال مستقیم به Groq
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -39,10 +55,11 @@ Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "pe
     }
 
     const groqData = await groqResponse.json();
-    const content = groqData.choices[0]?.message?.content || '{}';
+    const content = groqData.choices?.[0]?.message?.content || '{}';
     const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
+    await redis.decr(`credits:${userCode}`);
     return NextResponse.json({ kurdish: parsed.kurdish || text, persian: parsed.persian || 'ترجمه نشد' });
 
   } catch (e: any) {
