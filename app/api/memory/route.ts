@@ -1,19 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 
 export const runtime = 'nodejs';
+const redis = Redis.fromEnv();
 
 export async function POST(req: NextRequest) {
   try {
     const { kurdish, persian } = await req.json();
     if (!kurdish || !persian) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
-    // ذخیره در دیتابیس KV
-    await kv.set(`dict:${kurdish}`, persian);
-    await kv.lpush('all_translations', JSON.stringify({ kurdish, persian }));
-    
-    // نگه داشتن فقط ۱۰۰ مورد آخر برای جلوگیری از پر شدن حافظه
-    await kv.ltrim('all_translations', 0, 99);
+    await redis.set(`dict:${kurdish}`, persian);
+    await redis.lpush('all_translations', JSON.stringify({ kurdish, persian }));
+    await redis.ltrim('all_translations', 0, 99);
 
     return NextResponse.json({ success: true });
   } catch (e: any) {

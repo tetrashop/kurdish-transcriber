@@ -10,7 +10,7 @@
   "dependencies": {
     "@ai-sdk/google": "^4.0.121",
     "@neondatabase/serverless": "^1.2.1",
-    "@vercel/kv": "^2.0.0",
+    "@upstash/redis": "^1.41.0",
     "ai": "^7.0.173",
     "next": "14.2.5",
     "react": "^18.3.1",
