@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 10000; // تنظیم روی ۱۰ ثانیه برای تعادل بین سرعت و دقت
-const MIN_CHUNK_SAMPLES = 16000 * 1.5;
+const CHUNK_MS = 5000; // کاهش به ۵ ثانیه برای پردازش فوق‌سریع
+const MIN_CHUNK_SAMPLES = 16000 * 1.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
@@ -30,29 +30,32 @@ export default function Recorder() {
     for (const b of chunks) { merged.set(b, off); off += b.length; }
     bufferRef.current = [];
 
-    if (!hasSpeech(merged, 0.015)) return;
+    if (!hasSpeech(merged, 0.01)) return;
 
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // افزایش به ۲۰ ثانیه
 
       try {
         setStatus('در حال رونویسی…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
-        // ۱. دریافت سریع متن کردی
         const res = await fetch('/api/transcribe', { method: 'POST', body: fd, signal: controller.signal });
         clearTimeout(timeoutId);
         const data = await res.json();
         
+        if (data.error) {
+          setStatus(`خطا: ${data.error.slice(0, 30)}`);
+          return;
+        }
+
         if (data.kurdish?.trim()) {
           const newId = crypto.randomUUID();
           const kurdishText = data.kurdish.trim();
           
-          // نمایش فوری متن کردی روی صفحه
           setSegments((prev) => [...prev, {
             id: newId,
             kurdish: kurdishText,
@@ -60,7 +63,7 @@ export default function Recorder() {
             ts: Date.now(),
           }]);
 
-          // ۲. ارسال درخواست ترجمه در پس‌زمینه (بدون بلاک کردن صف)
+          // درخواست ترجمه در پس‌زمینه
           fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -68,7 +71,6 @@ export default function Recorder() {
           })
           .then(r => r.json())
           .then(tData => {
-             // آپدیت کردن همان سگمنت با متن فارسی
              setSegments((prev) => prev.map(s => 
                s.id === newId ? { ...s, persian: tData.persian } : s
              ));
@@ -78,7 +80,6 @@ export default function Recorder() {
                s.id === newId ? { ...s, persian: 'خطای ترجمه' } : s
              ));
           });
-
         }
         setStatus('در حال شنیدن…');
       } catch (err: any) {

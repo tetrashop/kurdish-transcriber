@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     upstream.append('model', 'whisper-large-v3');
     upstream.append('language', 'fa'); 
     upstream.append('response_format', 'json');
-    upstream.append('temperature', '0');
+    // temperature حذف شد تا سرعت افزایش یابد
 
     const sttRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -25,7 +25,11 @@ export async function POST(req: NextRequest) {
       body: upstream,
     });
 
-    if (!sttRes.ok) throw new Error(`STT Error: ${sttRes.status}`);
+    if (!sttRes.ok) {
+        const errText = await sttRes.text();
+        return NextResponse.json({ error: `Groq: ${sttRes.status} ${errText.slice(0, 30)}` });
+    }
+
     const sttData = await sttRes.json();
     let originalText = sttData.text?.trim() || '';
 
@@ -34,7 +38,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ kurdish: '' }); 
     }
 
-    // فقط متن کردی را برمی‌گرداند
     return NextResponse.json({ kurdish: originalText });
     
   } catch (e: any) {
