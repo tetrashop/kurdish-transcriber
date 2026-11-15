@@ -5,13 +5,11 @@ import { Redis } from '@upstash/redis';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-// کلاینت اول: درگاه 1xAi (Gemini)
 const client1xAi = new OpenAI({
   baseURL: 'https://1xai.ir/v1',
   apiKey: process.env.ONE_X_AI_API_KEY || 'missing-key',
 });
 
-// کلاینت دوم: درگاه Groq (Llama 3 - رایگان)
 const clientGroq = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
   apiKey: process.env.GROQ_API_KEY || 'missing-key',
@@ -24,7 +22,6 @@ export async function POST(req: NextRequest) {
     const userCode = req.headers.get('x-user-code');
     if (!userCode) return NextResponse.json({ persian: 'کد دسترسی وارد نشده است.' }, { status: 401 });
 
-    // بررسی اعتبار کاربر
     const credits = await redis.get<number>(`credits:${userCode}`);
     if (credits === null || credits <= 0) {
       return NextResponse.json({ persian: 'اعتبار شما به پایان رسیده است. لطفاً شارژ کنید.' }, { status: 403 });
@@ -44,7 +41,7 @@ export async function POST(req: NextRequest) {
     let persianText = '';
     let usedEngine = '';
 
-    // تلاش اول: استفاده از Gemini (1xAi)
+    // تلاش اول: 1xAi (Gemini)
     try {
       const completion = await client1xAi.chat.completions.create({
         model: 'gemini-2.5-pro',
@@ -57,10 +54,10 @@ export async function POST(req: NextRequest) {
       persianText = completion.choices[0]?.message?.content?.trim() || '';
       usedEngine = '1xAi (Gemini)';
     } catch (error: any) {
-      // اگر 1xAi خطا داد (مثلاً 402)، به سراغ Groq می‌رویم
+      // در صورت خطا (مثلاً 402)، به سراغ Groq می‌رویم
       console.log('1xAi failed, falling back to Groq...');
       const fallbackCompletion = await clientGroq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model: 'openai/gpt-oss-20b', // مدل جدید و فعال Groq
         messages: [
           { role: 'system', content: `You are a Kurdish to Persian translator. ${memoryPrompt} Output ONLY Persian.` },
           { role: 'user', content: text }
@@ -75,10 +72,8 @@ export async function POST(req: NextRequest) {
        return NextResponse.json({ persian: 'ترجمه‌ای یافت نشد' });
     }
 
-    // کسر اعتبار پس از ترجمه موفق
     await redis.decr(`credits:${userCode}`);
 
-    // برای اینکه بدانید از کدام موتور استفاده شده (اختیاری)
     return NextResponse.json({ persian: persianText });
     
   } catch (e: any) {
