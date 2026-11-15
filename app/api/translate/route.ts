@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { Index } from '@upstash/vector';
 import { Redis } from '@upstash/redis';
 
@@ -20,7 +19,7 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // ۱. حافظه برداری (RAG) - اختیاری
+    // ۱. حافظه برداری (RAG)
     let memoryPrompt = '';
     try {
       const index = new Index({ url: process.env.UPSTASH_VECTOR_REST_URL, token: process.env.UPSTASH_VECTOR_REST_TOKEN });
@@ -35,19 +34,33 @@ ${memoryPrompt}
 Translate the phonetic Kurdish input to fluent Persian.
 Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "persian translation"}`;
 
-    // ۲. استفاده از Groq به عنوان موتور اصلی (جلوگیری از خطای 1xAi)
-    const clientGroq = new OpenAI({
-      baseURL: 'https://api.groq.com/openai/v1',
-      apiKey: process.env.GROQ_API_KEY,
+    // ۲. اتصال مستقیم به Groq با استفاده از fetch (بدون واسطه)
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-20b',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' } // Groq از این فرمت کاملاً پشتیبانی می‌کند
+      })
     });
 
-    const completion = await clientGroq.chat.completions.create({
-      model: 'openai/gpt-oss-20b',
-      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
-      temperature: 0.1,
-    });
+    if (!groqResponse.ok) {
+      const errorText = await groqResponse.text();
+      return NextResponse.json({ persian: `خطای Groq (${groqResponse.status}): ${errorText.slice(0, 50)}` });
+    }
 
-    const content = completion.choices[0]?.message?.content || '{}';
+    const groqData = await groqResponse.json();
+    const content = groqData.choices[0]?.message?.content || '{}';
+    
+    // پاکسازی و خواندن JSON
     const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
