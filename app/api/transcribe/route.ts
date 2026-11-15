@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30; // کاهش زمان برای جلوگیری از انتظار طولانی
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
     if (!originalText) return NextResponse.json({ kurdish: '', persian: '' });
 
-    // ۲. ترجمه با مدل پایدار Mixtral
+    // ۲. ترجمه با مدل معتبر و پایدار Llama 3.3 (70B)
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'mixtral-8x7b-32768', // مدل بسیار پایدار و سریع
+        model: 'llama-3.3-70b-versatile', // مدل جدید و معتبر
         messages: [
           { 
             role: 'system', 
@@ -57,8 +57,11 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (llmRes.status === 429) return NextResponse.json({ kurdish: originalText, persian: '⏳ محدودیت سرعت' });
-    if (!llmRes.ok) return NextResponse.json({ kurdish: originalText, persian: `خطای ترجمه: ${llmRes.status}` });
+    // اگر باز هم خطا داد، متن دقیق خطای Groq را برمی‌گردانیم تا ببینیم چه می‌گوید
+    if (!llmRes.ok) {
+        const errText = await llmRes.text();
+        return NextResponse.json({ kurdish: originalText, persian: `خطای Groq: ${errText.slice(0, 50)}` });
+    }
 
     const llmData = await llmRes.json();
     let persianText = llmData.choices[0].message.content?.trim();
