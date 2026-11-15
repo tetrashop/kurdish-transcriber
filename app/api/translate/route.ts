@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { Index } from '@upstash/vector';
 import { Redis } from '@upstash/redis';
 
 export const runtime = 'nodejs';
@@ -13,6 +14,11 @@ const client1xAi = new OpenAI({
 const clientGroq = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
   apiKey: process.env.GROQ_API_KEY || 'missing-key',
+});
+
+const index = new Index({
+  url: process.env.UPSTASH_VECTOR_REST_URL,
+  token: process.env.UPSTASH_VECTOR_REST_TOKEN,
 });
 
 const redis = Redis.fromEnv();
@@ -30,64 +36,47 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
+    // ۱. جستجوی معنایی در حافظه برداری
     let memoryPrompt = '';
     try {
-      const history = await redis.lrange('all_translations', 0, 3); // کاهش حافظه برای صرفه‌جویی در توکن
-      if (history && history.length > 0) {
-        memoryPrompt = `\nLearn from these:\n${history.map((h:any) => typeof h === 'string' ? h : JSON.stringify(h)).join('\n')}\n`;
+      const results = await index.query({ data: text, topK: 3, includeMetadata: true });
+      if (results && results.length > 0 && results[0].score > 0.85) {
+        const examples = results.map(r => `Input: "${r.data}" -> Output: "${r.metadata?.persian}"`).join('\n');
+        memoryPrompt = `\nLearn from these past corrections:\n${examples}\n`;
       }
     } catch (e) {}
 
-    // پرامپت قفل‌شده: هوش مصنوعی اصلاً اجازه ندارد توضیح اضافه بدهد
-    const systemPrompt = `You are a Kurdish (Sorani) to Persian translator. Translate the input to Persian. ${memoryPrompt} 
-RULES:
-1. Output ONLY the Persian translation.
-2. Do NOT explain anything.
-3. Do NOT say "متن نامفهوم است" (unintelligible).
-4. If the text is just noise, output the word "NOISE".`;
+    const systemPrompt = `You are an advanced Kurdish (Sorani) to Persian translator.
+The input is phonetic ASR output. ${memoryPrompt}
+1. Normalize the text to standard Kurdish.
+2. Translate to fluent Persian.
+Output ONLY a JSON object: {"kurdish": "...", "persian": "..."}`;
 
-    let persianText = '';
+    let parsed = { kurdish: text, persian: 'ترجمه نشد' };
 
-    // تلاش اول: Gemini (1xAi)
+    // تلاش اول: Gemini
     try {
       const completion = await client1xAi.chat.completions.create({
         model: 'gemini-2.5-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text }
-        ],
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
         temperature: 0.1,
       });
-      persianText = completion.choices[0]?.message?.content?.trim() || '';
-    } catch (error: any) {
-      // تلاش دوم: Groq (در صورت خطای 402 یا شبکه)
-      try {
-        const fallbackCompletion = await clientGroq.chat.completions.create({
-          model: 'openai/gpt-oss-20b',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: text }
-          ],
-          temperature: 0.1,
-        });
-        persianText = fallbackCompletion.choices[0]?.message?.content?.trim() || '';
-      } catch (fallbackError: any) {
-         // اگر Groq هم خطای 429 داد، به کاربر بگو
-         if (fallbackError.status === 429) {
-            return NextResponse.json({ persian: '⏳ سرور شلوغ است (تلاش مجدد)' });
-         }
-         throw fallbackError;
-      }
+      parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    } catch (error) {
+      // تلاش دوم: Groq Fallback
+      const completion = await clientGroq.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+        temperature: 0.1,
+      });
+      parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
     }
 
-    // اگر خروجی NOISE بود یا خالی بود، چیزی نشان نده
-    if (!persianText || persianText.toUpperCase().includes('NOISE')) {
-       return NextResponse.json({ persian: '' });
-    }
+    if (parsed.persian) await redis.decr(`credits:${userCode}`);
+    return NextResponse.json(parsed);
 
-    await redis.decr(`credits:${userCode}`);
-    return NextResponse.json({ persian: persianText });
-    
   } catch (e: any) {
     return NextResponse.json({ persian: `خطای شبکه` }, { status: 502 });
   }

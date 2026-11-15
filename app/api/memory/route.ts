@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Redis } from '@upstash/redis';
+import { Index } from '@upstash/vector';
 
 export const runtime = 'nodejs';
-const redis = Redis.fromEnv();
+
+const index = new Index({
+  url: process.env.UPSTASH_VECTOR_REST_URL,
+  token: process.env.UPSTASH_VECTOR_REST_TOKEN,
+});
 
 export async function POST(req: NextRequest) {
   try {
     const { kurdish, persian } = await req.json();
     if (!kurdish || !persian) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
-    await redis.set(`dict:${kurdish}`, persian);
-    await redis.lpush('all_translations', JSON.stringify({ kurdish, persian }));
-    await redis.ltrim('all_translations', 0, 99);
+    await index.upsert({
+      id: crypto.randomUUID(),
+      data: kurdish,
+      metadata: { persian: persian }
+    });
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
+    console.error(e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
