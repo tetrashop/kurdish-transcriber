@@ -61,8 +61,8 @@ export default function Recorder() {
           const kurdishText = data.kurdish.trim();
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          // استفاده از مسیر جدید /api/engine
-          const tRes = await fetch('/api/engine', {
+          // مسیر اصلی بازگردانده شد
+          const tRes = await fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
             body: JSON.stringify({ text: kurdishText })
@@ -122,10 +122,6 @@ export default function Recorder() {
       <div className="controls" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
            <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
-           {/* برچسب اثبات به‌روزرسانی */}
-           <span style={{ fontSize: '12px', color: '#2ea043', border: '1px solid #2ea043', padding: '4px 8px', borderRadius: '4px' }}>
-             v2.0 (Groq Engine)
-           </span>
            <span className="status" style={{ color: '#8b949e', fontSize: '13px' }}>{status}</span>
         </div>
         <button onClick={() => { localStorage.removeItem('kurdish_user_code'); setIsAuthorized(false); }} style={{ background: 'transparent', border: '1px solid #30363d', padding: '8px' }}>خروج</button>
