@@ -8,11 +8,27 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    const systemPrompt = `You are an advanced Kurdish (Sorani) to Persian translator. 
-Translate the phonetic Kurdish input to fluent Persian.
-Output ONLY a valid JSON object: {"kurdish": "text", "persian": "translation"}`;
+    // پرامپت قفل‌شده با قوانین سخت‌گیرانه و مثال‌های آموزشی
+    const systemPrompt = `You are an expert Kurdish (Sorani) to Persian translator.
+The input you receive is an AI transcription of spoken Kurdish, written phonetically using the Persian alphabet. It looks like misspelled Persian, but it is actually Kurdish. 
 
-    // استفاده از مدل فعال و پایدار Groq
+RULES:
+1. Do NOT say the text is unintelligible or unclear. Always do your best to guess the intended meaning from context.
+2. Do NOT explain anything. Do NOT output any text other than the JSON.
+3. Translate the concept to fluent, natural Persian.
+
+Examples:
+Input: "سید علی اسغری کردستانی"
+Output: {"kurdish": "سید علی اصغری کردستانی", "persian": "سید علی اصغری کردستانی"}
+
+Input: "بیرو خوش بینم"
+Output: {"kurdish": "بیرۆ خۆش بینم", "persian": "فکر خوبی است"}
+
+Input: "دنگێ نواندی کردستان"
+Output: {"kurdish": "دەنگی نواندی کوردستان", "persian": "صدای رسانه کردستان"}
+
+Now, translate the user's input and output ONLY this JSON format: {"kurdish": "corrected kurdish text", "persian": "fluent persian translation"}`;
+
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -20,16 +36,15 @@ Output ONLY a valid JSON object: {"kurdish": "text", "persian": "translation"}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b', // مدل جایگزین و فعال
+        model: 'openai/gpt-oss-120b', // مدل قدرتمند
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
-        temperature: 0.1,
+        temperature: 0.1, // خلاقیت کم برای ترجمه دقیق
         response_format: { type: 'json_object' }
       })
     });
 
     if (!groqResponse.ok) {
-      const errorText = await groqResponse.text();
-      return NextResponse.json({ persian: `خطای Groq (${groqResponse.status}): ${errorText.slice(0, 50)}` });
+      return NextResponse.json({ persian: `خطای Groq (${groqResponse.status})` });
     }
 
     const groqData = await groqResponse.json();
@@ -39,6 +54,6 @@ Output ONLY a valid JSON object: {"kurdish": "text", "persian": "translation"}`;
     return NextResponse.json({ kurdish: parsed.kurdish || text, persian: parsed.persian || 'ترجمه نشد' });
 
   } catch (e: any) {
-    return NextResponse.json({ persian: `خطای سیستم: ${e.message.slice(0, 50)}` }, { status: 502 });
+    return NextResponse.json({ persian: `خطای سیستم` }, { status: 502 });
   }
 }

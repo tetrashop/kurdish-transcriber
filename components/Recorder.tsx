@@ -51,41 +51,39 @@ export default function Recorder() {
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
-        const res = await fetch('/api/transcribe', { 
-          method: 'POST', body: fd, headers: { 'x-user-code': userCode } 
-        });
+        const res = await fetch('/api/transcribe', { method: 'POST', body: fd, headers: { 'x-user-code': userCode } });
         const data = await res.json();
         
         if (data.kurdish?.trim()) {
           const newId = crypto.randomUUID();
           const kurdishText = data.kurdish.trim();
+          
+          // فیلتر کلمات تکراری (توهم Whisper)
+          const words = kurdishText.split(' ');
+          const isRepetitive = words.length > 4 && new Set(words).size < words.length / 2;
+          if (isRepetitive) return; // اگر تکرار زیاد بود، نادیده بگیر
+
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          // درخواست ترجمه با مدیریت دقیق خطا
-          try {
-            const tRes = await fetch('/api/translate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
-              body: JSON.stringify({ text: kurdishText })
-            });
-            
-            if (!tRes.ok) {
-                throw new Error(`HTTP ${tRes.status}`);
-            }
-            const tData = await tRes.json();
-            
-            if (tData.persian?.trim()) {
-               setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
-            } else {
-               setSegments((prev) => prev.filter(s => s.id !== newId));
-            }
-          } catch (err: any) {
-             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: `خطا: ${err.message}` } : s));
+          const tRes = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
+            body: JSON.stringify({ text: kurdishText })
+          });
+          const tData = await tRes.json();
+          
+          // اگر هوش مصنوعی باز هم گفت "نامفهوم"، آن سگمنت را حذف کن
+          if (tData.persian?.includes('نامفهوم') || tData.persian?.includes('نمی‌توان')) {
+              setSegments((prev) => prev.filter(s => s.id !== newId));
+          } else if (tData.persian?.trim()) {
+             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
+          } else {
+             setSegments((prev) => prev.filter(s => s.id !== newId));
           }
         }
         setStatus('در حال شنیدن…');
       } catch (err: any) {
-        setStatus('خطای رونویسی');
+        setStatus('خطای شبکه');
       }
     });
     await queueRef.current;
@@ -131,7 +129,7 @@ export default function Recorder() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
            <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
            <span style={{ fontSize: '12px', color: '#2ea043', border: '1px solid #2ea043', padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-             v6.1 (Stable)
+             v7.0 (AI Enhanced)
            </span>
            <span className="status" style={{ color: '#8b949e', fontSize: '13px' }}>{status}</span>
         </div>
@@ -143,7 +141,7 @@ export default function Recorder() {
           <div key={s.id} style={{ padding: '15px', borderBottom: '1px solid #21262d', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div><span style={{ fontSize: '11px', color: '#58a6ff', background: '#0d419d33', padding: '2px 8px', borderRadius: '999px' }}>گوینده</span></div>
             <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>{s.kurdish}</div>
-            <div style={{ fontSize: '13px', color: s.persian.includes('خطا') ? '#f85149' : '#8b949e', direction: 'rtl' }}>ترجمه: {s.persian}</div>
+            <div style={{ fontSize: '13px', color: s.persian.includes('اعتبار') || s.persian.includes('خطا') ? '#f85149' : '#8b949e', direction: 'rtl' }}>ترجمه: {s.persian}</div>
           </div>
         ))}
       </div>
