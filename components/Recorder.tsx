@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 10000; // افزایش به ۱۰ ثانیه برای کاهش درخواست‌ها
+const CHUNK_MS = 10000; // ۱۰ ثانیه
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
 export default function Recorder() {
@@ -46,18 +46,14 @@ export default function Recorder() {
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-
       try {
         setStatus('در حال رونویسی…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
         const res = await fetch('/api/transcribe', { 
-          method: 'POST', body: fd, headers: { 'x-user-code': userCode }, signal: controller.signal 
+          method: 'POST', body: fd, headers: { 'x-user-code': userCode } 
         });
-        clearTimeout(timeoutId);
         const data = await res.json();
         
         if (data.kurdish?.trim()) {
@@ -65,29 +61,25 @@ export default function Recorder() {
           const kurdishText = data.kurdish.trim();
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          // درخواست ترجمه با مدیریت خطای 429 (تلاش مجدد خودکار)
-          const translateWithRetry = async (retries = 2) => {
-             try {
-                const tRes = await fetch('/api/translate', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
-                  body: JSON.stringify({ text: kurdishText })
-                });
-                const tData = await tRes.json();
-                if (tData.persian.includes('429') && retries > 0) {
-                   await new Promise(r => setTimeout(r, 2000)); // ۲ ثانیه صبر و تلاش مجدد
-                   return translateWithRetry(retries - 1);
-                }
-                setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
-             } catch (e) {
-                setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: 'خطای ترجمه' } : s));
-             }
-          };
-          translateWithRetry();
+          // ایجاد یک تاخیر کوچک (۱.۵ ثانیه) بین درخواست‌های ترجمه برای جلوگیری از 429
+          await new Promise(r => setTimeout(r, 1500));
+
+          const tRes = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
+            body: JSON.stringify({ text: kurdishText })
+          });
+          const tData = await tRes.json();
+          
+          if (tData.persian?.trim()) {
+             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
+          } else {
+             // اگر ترجمه خالی بود (NOISE)، سگمنت را کلاً از صفحه حذف کن
+             setSegments((prev) => prev.filter(s => s.id !== newId));
+          }
         }
         setStatus('در حال شنیدن…');
       } catch (err: any) {
-        clearTimeout(timeoutId);
         setStatus('خطای شبکه');
       }
     });

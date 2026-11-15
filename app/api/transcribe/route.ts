@@ -28,11 +28,10 @@ export async function POST(req: NextRequest) {
     const sttData = await sttRes.json();
     let originalText = sttData.text?.trim() || '';
 
-    // فیلتر بسیار قوی‌تر برای کلمات مزاحم و توهم‌زنی
-    const gibberish = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you', 'PYM', 'JBZ', 'پیام جبهه', 'پیشرفت بزرگ', 'پیمان جبهه', 'متن نامفهوم'];
+    // فیلتر بسیار قوی برای حذف کلمات بی‌ربط (شامل PYM JBZ)
+    const gibberish = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you', 'PYM', 'JBZ', 'پیام جبهه', 'پیشرفت بزرگ', 'پیمان جبهه'];
     const lowerText = originalText.toUpperCase();
     
-    // اگر متن کوتاه بود و شامل کلمات مزاحم بود، کلاً نادیده بگیر
     if (originalText.length < 50 && gibberish.some(g => lowerText.includes(g.toUpperCase()))) {
         return NextResponse.json({ kurdish: '' });
     }
