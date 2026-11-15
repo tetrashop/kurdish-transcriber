@@ -8,26 +8,11 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // پرامپت قفل‌شده با قوانین سخت‌گیرانه و مثال‌های آموزشی
     const systemPrompt = `You are an expert Kurdish (Sorani) to Persian translator.
-The input you receive is an AI transcription of spoken Kurdish, written phonetically using the Persian alphabet. It looks like misspelled Persian, but it is actually Kurdish. 
-
-RULES:
-1. Do NOT say the text is unintelligible or unclear. Always do your best to guess the intended meaning from context.
-2. Do NOT explain anything. Do NOT output any text other than the JSON.
-3. Translate the concept to fluent, natural Persian.
-
-Examples:
-Input: "سید علی اسغری کردستانی"
-Output: {"kurdish": "سید علی اصغری کردستانی", "persian": "سید علی اصغری کردستانی"}
-
-Input: "بیرو خوش بینم"
-Output: {"kurdish": "بیرۆ خۆش بینم", "persian": "فکر خوبی است"}
-
-Input: "دنگێ نواندی کردستان"
-Output: {"kurdish": "دەنگی نواندی کوردستان", "persian": "صدای رسانه کردستان"}
-
-Now, translate the user's input and output ONLY this JSON format: {"kurdish": "corrected kurdish text", "persian": "fluent persian translation"}`;
+The input you receive is an AI transcription of spoken Kurdish, written phonetically using the Persian alphabet. 
+Translate the concept to fluent, natural Persian.
+Do NOT explain anything. Do NOT output any text other than the JSON.
+Output ONLY this JSON format: {"kurdish": "corrected kurdish text", "persian": "fluent persian translation"}`;
 
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -36,12 +21,17 @@ Now, translate the user's input and output ONLY this JSON format: {"kurdish": "c
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-120b', // مدل قدرتمند
+        model: 'openai/gpt-oss-120b',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
-        temperature: 0.1, // خلاقیت کم برای ترجمه دقیق
+        temperature: 0.1,
         response_format: { type: 'json_object' }
       })
     });
+
+    // اگر خطای 429 (محدودیت سرعت) رخ داد، دقیقا همان را به فرانت‌اند بفرست
+    if (groqResponse.status === 429) {
+        return NextResponse.json({ persian: `429` }, { status: 429 });
+    }
 
     if (!groqResponse.ok) {
       return NextResponse.json({ persian: `خطای Groq (${groqResponse.status})` });

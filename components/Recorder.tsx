@@ -58,28 +58,45 @@ export default function Recorder() {
           const newId = crypto.randomUUID();
           const kurdishText = data.kurdish.trim();
           
-          // فیلتر کلمات تکراری (توهم Whisper)
+          // فیلتر کلمات تکراری
           const words = kurdishText.split(' ');
-          const isRepetitive = words.length > 4 && new Set(words).size < words.length / 2;
-          if (isRepetitive) return; // اگر تکرار زیاد بود، نادیده بگیر
+          if (words.length > 4 && new Set(words).size < words.length / 2) return;
 
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          const tRes = await fetch('/api/translate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
-            body: JSON.stringify({ text: kurdishText })
-          });
-          const tData = await tRes.json();
+          // تابع ترجمه با قابلیت تلاش مجدد در صورت خطای 429
+          const translateWithRetry = async (retries = 3, delay = 2000) => {
+            try {
+              const tRes = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
+                body: JSON.stringify({ text: kurdishText })
+              });
+              
+              // اگر خطای 429 بود و هنوز فرصت تلاش داریم
+              if (tRes.status === 429 && retries > 0) {
+                 setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: `⏳ محدودیت سرعت، تلاش مجدد...` } : s));
+                 await new Promise(r => setTimeout(r, delay));
+                 return translateWithRetry(retries - 1, delay * 2); // تاخیر نمایی (۲ ثانیه، ۴ ثانیه...)
+              }
+
+              const tData = await tRes.json();
+              
+              if (tData.persian?.includes('نامفهوم') || tData.persian?.includes('نمی‌توان')) {
+                  setSegments((prev) => prev.filter(s => s.id !== newId));
+              } else if (tData.persian?.trim()) {
+                 setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
+              } else {
+                 setSegments((prev) => prev.filter(s => s.id !== newId));
+              }
+            } catch (e) {
+                 setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: 'خطای شبکه' } : s));
+            }
+          };
           
-          // اگر هوش مصنوعی باز هم گفت "نامفهوم"، آن سگمنت را حذف کن
-          if (tData.persian?.includes('نامفهوم') || tData.persian?.includes('نمی‌توان')) {
-              setSegments((prev) => prev.filter(s => s.id !== newId));
-          } else if (tData.persian?.trim()) {
-             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
-          } else {
-             setSegments((prev) => prev.filter(s => s.id !== newId));
-          }
+          // اضافه کردن یک تاخیر ۱.۵ ثانیه‌ای قبل از هر ترجمه برای جلوگیری از 429
+          await new Promise(r => setTimeout(r, 1500));
+          await translateWithRetry();
         }
         setStatus('در حال شنیدن…');
       } catch (err: any) {
@@ -129,7 +146,7 @@ export default function Recorder() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
            <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
            <span style={{ fontSize: '12px', color: '#2ea043', border: '1px solid #2ea043', padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-             v7.0 (AI Enhanced)
+             v7.1 (Auto Retry)
            </span>
            <span className="status" style={{ color: '#8b949e', fontSize: '13px' }}>{status}</span>
         </div>
