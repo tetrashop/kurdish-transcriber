@@ -16,13 +16,11 @@ export async function POST(req: NextRequest) {
     });
 
     const response = await zarinpal.payments.create({
-      amount: amount * 10, // تبدیل تومان به ریال
+      amount: amount * 10, 
       callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payment/verify`,
       description: `شارژ اعتبار برای ${userCode}`,
-      // فیلد metadata حذف شد چون در این نسخه از SDK پشتیبانی نمی‌شود
     });
 
-    // ذخیره کد کاربر با کلید authority در دیتابیس
     await redis.set(`payment:${response.data.authority}`, userCode, { ex: 3600 });
 
     return NextResponse.json({ redirectUrl: zarinpal.payments.getRedirectUrl(response.data.authority) });
