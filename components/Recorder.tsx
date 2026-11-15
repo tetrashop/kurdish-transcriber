@@ -36,7 +36,7 @@ export default function Recorder() {
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // ۱۵ ثانیه تایم‌اوت سختگیرانه
 
       try {
         setStatus('در حال پردازش…');
@@ -66,9 +66,12 @@ export default function Recorder() {
           setStatus('در حال شنیدن…');
         }
       } catch (err: any) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') setStatus('خطا: تایم‌اوت');
-        else setStatus('خطای شبکه');
+        clearTimeout(timeoutId); // پاک کردن تایمر در هر شرایطی
+        if (err.name === 'AbortError') {
+          setStatus('خطا: سرور پاسخ نداد (تایم‌اوت)');
+        } else {
+          setStatus('خطای شبکه');
+        }
       }
     });
     await queueRef.current;
@@ -134,7 +137,7 @@ export default function Recorder() {
               {s.kurdish}
             </div>
             <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
-              ترجمه: {s.persian || '⏳ در حال پردازش...'}
+              ترجمه: {s.persian || '⏳'}
             </div>
           </div>
         ))}
