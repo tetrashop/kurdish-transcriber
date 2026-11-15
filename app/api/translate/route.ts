@@ -5,10 +5,18 @@ import { Redis } from '@upstash/redis';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-const client = new OpenAI({
+// کلاینت اول: درگاه 1xAi (Gemini)
+const client1xAi = new OpenAI({
   baseURL: 'https://1xai.ir/v1',
   apiKey: process.env.ONE_X_AI_API_KEY || 'missing-key',
 });
+
+// کلاینت دوم: درگاه Groq (Llama 3 - رایگان)
+const clientGroq = new OpenAI({
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: process.env.GROQ_API_KEY || 'missing-key',
+});
+
 const redis = Redis.fromEnv();
 
 export async function POST(req: NextRequest) {
@@ -19,34 +27,61 @@ export async function POST(req: NextRequest) {
     // بررسی اعتبار کاربر
     const credits = await redis.get<number>(`credits:${userCode}`);
     if (credits === null || credits <= 0) {
-      return NextResponse.json({ persian: 'اعتبار شما به پایان رسیده است. لطفاً حساب خود را شارژ کنید.' }, { status: 403 });
+      return NextResponse.json({ persian: 'اعتبار شما به پایان رسیده است. لطفاً شارژ کنید.' }, { status: 403 });
     }
 
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // ... (بخش پرامپت و حافظه قبلی بدون تغییر) ...
     let memoryPrompt = '';
-    const history = await redis.lrange('all_translations', 0, 5);
-    if (history && history.length > 0) {
-      memoryPrompt = `\nLearn from these previous translations:\n${history.map((h:any) => typeof h === 'string' ? h : JSON.stringify(h)).join('\n')}\n`;
+    try {
+      const history = await redis.lrange('all_translations', 0, 5);
+      if (history && history.length > 0) {
+        memoryPrompt = `\nLearn from these:\n${history.map((h:any) => typeof h === 'string' ? h : JSON.stringify(h)).join('\n')}\n`;
+      }
+    } catch (e) {}
+
+    let persianText = '';
+    let usedEngine = '';
+
+    // تلاش اول: استفاده از Gemini (1xAi)
+    try {
+      const completion = await client1xAi.chat.completions.create({
+        model: 'gemini-2.5-pro',
+        messages: [
+          { role: 'system', content: `You are a Kurdish to Persian translator. ${memoryPrompt} Output ONLY Persian.` },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.2,
+      });
+      persianText = completion.choices[0]?.message?.content?.trim() || '';
+      usedEngine = '1xAi (Gemini)';
+    } catch (error: any) {
+      // اگر 1xAi خطا داد (مثلاً 402)، به سراغ Groq می‌رویم
+      console.log('1xAi failed, falling back to Groq...');
+      const fallbackCompletion = await clientGroq.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: `You are a Kurdish to Persian translator. ${memoryPrompt} Output ONLY Persian.` },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.2,
+      });
+      persianText = fallbackCompletion.choices[0]?.message?.content?.trim() || '';
+      usedEngine = 'Groq (Fallback)';
     }
 
-    const completion = await client.chat.completions.create({
-      model: 'gemini-2.5-pro',
-      messages: [
-        { role: 'system', content: `You are a Kurdish to Persian translator. ${memoryPrompt} Output ONLY Persian.` },
-        { role: 'user', content: text }
-      ],
-      temperature: 0.2,
-    });
+    if (!persianText) {
+       return NextResponse.json({ persian: 'ترجمه‌ای یافت نشد' });
+    }
 
-    // کسر ۱ واحد از اعتبار مشتری پس از ترجمه موفق
+    // کسر اعتبار پس از ترجمه موفق
     await redis.decr(`credits:${userCode}`);
 
-    const persianText = completion.choices[0]?.message?.content?.trim() || 'ترجمه نشد';
+    // برای اینکه بدانید از کدام موتور استفاده شده (اختیاری)
     return NextResponse.json({ persian: persianText });
+    
   } catch (e: any) {
-    return NextResponse.json({ persian: `خطای سیستم: ${e.message.slice(0, 30)}` }, { status: 502 });
+    return NextResponse.json({ persian: `خطای شبکه: ${e.message.slice(0, 30)}` }, { status: 502 });
   }
 }
