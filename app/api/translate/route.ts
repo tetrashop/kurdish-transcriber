@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+// مدل پیشنهادی و پایدار Groq برای ترجمه
+const MODEL = 'openai/gpt-oss-120b';
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'GROQ_API_KEY missing' }, { status: 500 });
@@ -18,8 +21,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        // استفاده از مدل بسیار قوی 70B برای درک متون محاوره‌ای
-        model: 'llama-3.3-70b-versatile',
+        model: MODEL,
         messages: [
           { 
             role: 'system', 
@@ -41,20 +43,26 @@ Output ONLY the Persian translation, nothing else.`
           },
           { role: 'user', content: text }
         ],
-        temperature: 0.3, // افزایش خلاقیت برای جلوگیری از خروجی خالی
+        temperature: 0.3,
         max_tokens: 300,
       }),
     });
 
+    // مدیریت خطاها
+    if (llmRes.status === 404) {
+        return NextResponse.json({ persian: '⚠️ مدل ترجمه در دسترس نیست (نیاز به به‌روزرسانی)' });
+    }
+    if (llmRes.status === 429) {
+        return NextResponse.json({ persian: '⏳ محدودیت سرعت سرور' });
+    }
     if (!llmRes.ok) {
         const errText = await llmRes.text();
-        return NextResponse.json({ persian: `خطای مدل (${llmRes.status})` });
+        return NextResponse.json({ persian: `خطای مدل (${llmRes.status}): ${errText.slice(0, 60)}` });
     }
 
     const llmData = await llmRes.json();
     let persianText = llmData.choices[0].message.content?.trim();
 
-    // اگر مدل باز هم خروجی خالی داد
     if (!persianText) {
         persianText = 'ترجمه‌ای یافت نشد (متن بسیار نامفهوم است)';
     }
