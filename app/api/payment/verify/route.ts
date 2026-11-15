@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZarinPal from 'zarinpal-node-sdk'; // اصلاح: Import به صورت Default
+import ZarinPal from 'zarinpal-node-sdk';
 import { Redis } from '@upstash/redis';
 
-const redis = Redis.fromEnv();
-
 export async function GET(req: NextRequest) {
+  // ایجاد کلاینت در زمان اجرا (نه در زمان Build)
+  const redis = Redis.fromEnv(); 
+
   const { searchParams } = new URL(req.url);
   const authority = searchParams.get('Authority');
   const status = searchParams.get('Status');

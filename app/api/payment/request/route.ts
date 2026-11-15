@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import ZarinPal from 'zarinpal-node-sdk';
 import { Redis } from '@upstash/redis';
 
-export const runtime = 'nodejs';
-const redis = Redis.fromEnv();
-
 export async function POST(req: NextRequest) {
+  // ایجاد کلاینت در زمان اجرا
+  const redis = Redis.fromEnv();
+
   try {
     const { amount, userCode } = await req.json();
     if (!amount || !userCode) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     });
 
     const response = await zarinpal.payments.create({
-      amount: amount * 10, 
+      amount: amount * 10,
       callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payment/verify`,
       description: `شارژ اعتبار برای ${userCode}`,
     });
