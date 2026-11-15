@@ -122,7 +122,7 @@ export default function Recorder() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
            <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
            <span style={{ fontSize: '12px', color: '#2ea043', border: '1px solid #2ea043', padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-             v5.0 (Audited & Fixed)
+             v6.0 (Final Stable)
            </span>
            <span className="status" style={{ color: '#8b949e', fontSize: '13px' }}>{status}</span>
         </div>
