@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 5000; 
+const CHUNK_MS = 5000;
 const MIN_CHUNK_SAMPLES = 16000 * 1.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
@@ -126,21 +126,15 @@ export default function Recorder() {
     };
   }, []);
 
-  // تابع ذخیره اصلاح در دیتابیس
   const saveCorrection = async (id: string, kurdish: string) => {
     if (!editText.trim()) return;
-    
-    // آپدیت UI
     setSegments(prev => prev.map(s => s.id === id ? { ...s, persian: editText } : s));
     setEditingId(null);
-
-    // ارسال به حافظه سرور
     await fetch('/api/memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kurdish, persian: editText })
     });
-    
     setStatus('🧠 مدل از این ترجمه یاد گرفت!');
   };
 
