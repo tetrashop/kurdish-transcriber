@@ -18,26 +18,46 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        // استفاده از مدل 20B برای ترجمه سریع‌تر و جلوگیری از تایم‌اوت
-        model: 'openai/gpt-oss-20b', 
+        // استفاده از مدل بسیار قوی 70B برای درک متون محاوره‌ای
+        model: 'llama-3.3-70b-versatile',
         messages: [
           { 
             role: 'system', 
-            content: 'You are a Kurdish (Sorani) to Persian translator. Translate the input (which is Kurdish written in Persian alphabet) to fluent Persian. Output ONLY the Persian translation.' 
+            content: `You are an expert Kurdish (Sorani) to Persian translator.
+The input text is a phonetic transcription of spoken Kurdish, written using the Persian alphabet. It looks like misspelled Persian, but it is actually Kurdish.
+Your task is to decode the intended meaning and translate it into fluent Persian.
+
+Examples:
+Input: "شوینواری ورگردی"
+Output: "به جای شاعری برگشتی"
+
+Input: "لکسانه اگوکو حافظ و سعدی"
+Output: "از کسانی که به حافظ و سعدی گوش می‌دهند"
+
+Input: "توانی رویشتنی نماؤ لدو خیلتا"
+Output: "توانستی بروی پیش خانواده‌ات"
+
+Output ONLY the Persian translation, nothing else.`
           },
           { role: 'user', content: text }
         ],
-        temperature: 0.2,
-        max_tokens: 200,
+        temperature: 0.3, // افزایش خلاقیت برای جلوگیری از خروجی خالی
+        max_tokens: 300,
       }),
     });
 
     if (!llmRes.ok) {
-        return NextResponse.json({ persian: `خطای ترجمه (${llmRes.status})` });
+        const errText = await llmRes.text();
+        return NextResponse.json({ persian: `خطای مدل (${llmRes.status})` });
     }
 
     const llmData = await llmRes.json();
-    let persianText = llmData.choices[0].message.content?.trim() || 'ترجمه نشد';
+    let persianText = llmData.choices[0].message.content?.trim();
+
+    // اگر مدل باز هم خروجی خالی داد
+    if (!persianText) {
+        persianText = 'ترجمه‌ای یافت نشد (متن بسیار نامفهوم است)';
+    }
 
     return NextResponse.json({ persian: persianText });
   } catch (e: any) {
