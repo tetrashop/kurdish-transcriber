@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 10000; // ۱۰ ثانیه
+const CHUNK_MS = 10000; 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
 export default function Recorder() {
@@ -61,10 +61,8 @@ export default function Recorder() {
           const kurdishText = data.kurdish.trim();
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          // ایجاد یک تاخیر کوچک (۱.۵ ثانیه) بین درخواست‌های ترجمه برای جلوگیری از 429
-          await new Promise(r => setTimeout(r, 1500));
-
-          const tRes = await fetch('/api/translate-v2', {
+          // استفاده از مسیر جدید /api/engine
+          const tRes = await fetch('/api/engine', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
             body: JSON.stringify({ text: kurdishText })
@@ -74,7 +72,6 @@ export default function Recorder() {
           if (tData.persian?.trim()) {
              setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
           } else {
-             // اگر ترجمه خالی بود (NOISE)، سگمنت را کلاً از صفحه حذف کن
              setSegments((prev) => prev.filter(s => s.id !== newId));
           }
         }
@@ -122,10 +119,14 @@ export default function Recorder() {
 
   return (
     <div className="panel">
-      <div className="controls" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
-        <div>
+      <div className="controls" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
            <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
-           <span className="status" style={{ marginRight: '15px', color: '#8b949e' }}>{status}</span>
+           {/* برچسب اثبات به‌روزرسانی */}
+           <span style={{ fontSize: '12px', color: '#2ea043', border: '1px solid #2ea043', padding: '4px 8px', borderRadius: '4px' }}>
+             v2.0 (Groq Engine)
+           </span>
+           <span className="status" style={{ color: '#8b949e', fontSize: '13px' }}>{status}</span>
         </div>
         <button onClick={() => { localStorage.removeItem('kurdish_user_code'); setIsAuthorized(false); }} style={{ background: 'transparent', border: '1px solid #30363d', padding: '8px' }}>خروج</button>
       </div>

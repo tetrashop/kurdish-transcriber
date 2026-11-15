@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // ۱. حافظه برداری (RAG)
     let memoryPrompt = '';
     try {
       const index = new Index({ url: process.env.UPSTASH_VECTOR_REST_URL, token: process.env.UPSTASH_VECTOR_REST_TOKEN });
@@ -34,7 +33,7 @@ ${memoryPrompt}
 Translate the phonetic Kurdish input to fluent Persian.
 Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "persian translation"}`;
 
-    // ۲. اتصال مستقیم به Groq با استفاده از fetch (بدون واسطه)
+    // اتصال مستقیم به Groq (بدون هیچ واسطه‌ای)
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -48,7 +47,7 @@ Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "pe
           { role: 'user', content: text }
         ],
         temperature: 0.1,
-        response_format: { type: 'json_object' } // Groq از این فرمت کاملاً پشتیبانی می‌کند
+        response_format: { type: 'json_object' }
       })
     });
 
@@ -59,19 +58,15 @@ Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "pe
 
     const groqData = await groqResponse.json();
     const content = groqData.choices[0]?.message?.content || '{}';
-    
-    // پاکسازی و خواندن JSON
     const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanContent);
 
-    if (!parsed.persian) {
-      return NextResponse.json({ persian: 'ترجمه‌ای یافت نشد.' });
-    }
+    if (!parsed.persian) return NextResponse.json({ persian: 'ترجمه‌ای یافت نشد.' });
 
     await redis.decr(`credits:${userCode}`);
     return NextResponse.json({ kurdish: parsed.kurdish || text, persian: parsed.persian });
 
   } catch (e: any) {
-    return NextResponse.json({ persian: `خطای ترجمه: ${e.message.slice(0, 50)}` }, { status: 502 });
+    return NextResponse.json({ persian: `خطای سیستم: ${e.message.slice(0, 50)}` }, { status: 502 });
   }
 }
