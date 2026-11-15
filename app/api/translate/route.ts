@@ -6,29 +6,12 @@ import { Redis } from '@upstash/redis';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-// بررسی وجود کلیدها در بدو ورود
-const checkEnv = () => {
-  if (!process.env.UPSTASH_REDIS_REST_URL) return 'تنظیم نشده: UPSTASH_REDIS_REST_URL';
-  if (!process.env.UPSTASH_VECTOR_REST_URL) return 'تنظیم نشده: UPSTASH_VECTOR_REST_URL';
-  if (!process.env.ONE_X_AI_API_KEY && !process.env.GROQ_API_KEY) return 'تنظیم نشده: API Keys';
-  return null;
-}
-
 export async function POST(req: NextRequest) {
-  const envError = checkEnv();
-  if (envError) return NextResponse.json({ persian: `خطای تنظیمات: ${envError}` });
-
   try {
     const userCode = req.headers.get('x-user-code');
     if (!userCode) return NextResponse.json({ persian: 'کد دسترسی وارد نشده است.' }, { status: 401 });
 
-    let redis;
-    try {
-      redis = Redis.fromEnv();
-    } catch (e: any) {
-      return NextResponse.json({ persian: `خطای دیتابیس Redis: ${e.message}` });
-    }
-
+    const redis = Redis.fromEnv();
     const credits = await redis.get<number>(`credits:${userCode}`);
     if (credits === null || credits <= 0) {
       return NextResponse.json({ persian: 'اعتبار شما به پایان رسیده است.' }, { status: 403 });
@@ -37,7 +20,7 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // ۱. جستجوی معنایی در حافظه برداری
+    // ۱. جستجوی معنایی در حافظه برداری (اختیاری)
     let memoryPrompt = '';
     try {
       const index = new Index({
@@ -47,55 +30,64 @@ export async function POST(req: NextRequest) {
       const results = await index.query({ data: text, topK: 3, includeMetadata: true });
       if (results && results.length > 0 && results[0].score > 0.85) {
         const examples = results.map(r => `Input: "${r.data}" -> Output: "${r.metadata?.persian}"`).join('\n');
-        memoryPrompt = `\nLearn from these:\n${examples}\n`;
+        memoryPrompt = `\nLearn from these past corrections:\n${examples}\n`;
       }
-    } catch (e) {
-      console.log('Vector DB Error, skipping memory:', e);
-    }
+    } catch (e) {}
 
-    const systemPrompt = `You are an advanced Kurdish to Persian translator. ${memoryPrompt} Output JSON: {"kurdish": "...", "persian": "..."}`;
+    // ۲. پرامپت برای دریافت خروجی JSON (بدون استفاده از response_format)
+    const systemPrompt = `You are an advanced Kurdish (Sorani) to Persian translator.
+The input is phonetic ASR output. ${memoryPrompt}
+1. Normalize the text to standard Kurdish.
+2. Translate to fluent Persian.
+You MUST output ONLY a valid JSON object in this exact format: {"kurdish": "corrected kurdish text", "persian": "persian translation"}
+Do NOT include any other text, markdown, or explanations.`;
 
     let parsed = { kurdish: text, persian: '' };
     let errors = [];
 
-    // تلاش اول: Gemini (1xAi)
+    // تلاش اول: 1xAi (Gemini)
     if (process.env.ONE_X_AI_API_KEY) {
       try {
         const client1xAi = new OpenAI({ baseURL: 'https://1xai.ir/v1', apiKey: process.env.ONE_X_AI_API_KEY });
         const completion = await client1xAi.chat.completions.create({
           model: 'gemini-2.5-pro',
-          response_format: { type: 'json_object' },
           messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
           temperature: 0.1,
+          // response_format حذف شد
         });
-        parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+        const content = completion.choices[0]?.message?.content || '{}';
+        // پاکسازی متن از markdown احتمالی
+        const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        parsed = JSON.parse(cleanContent);
       } catch (err: any) {
-        errors.push(`Gemini: ${err.message.slice(0, 30)}`);
+        errors.push(`Gemini: ${err.message.slice(0, 50)}`);
       }
     }
 
-    // تلاش دوم: Groq Fallback
+    // تلاش دوم: Groq (Fallback)
     if (!parsed.persian && process.env.GROQ_API_KEY) {
       try {
         const clientGroq = new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey: process.env.GROQ_API_KEY });
         const completion = await clientGroq.chat.completions.create({
           model: 'openai/gpt-oss-20b',
-          response_format: { type: 'json_object' },
           messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
           temperature: 0.1,
+          // response_format حذف شد
         });
-        parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+        const content = completion.choices[0]?.message?.content || '{}';
+        const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        parsed = JSON.parse(cleanContent);
       } catch (err: any) {
-        errors.push(`Groq: ${err.message.slice(0, 30)}`);
+        errors.push(`Groq: ${err.message.slice(0, 50)}`);
       }
     }
 
     if (!parsed.persian) {
-      return NextResponse.json({ persian: `خطای ترجمه (${errors.join(' | ')})` });
+      return NextResponse.json({ persian: `خطای ترجمه: ${errors.join(' | ')}` });
     }
 
     await redis.decr(`credits:${userCode}`);
-    return NextResponse.json(parsed);
+    return NextResponse.json({ kurdish: parsed.kurdish, persian: parsed.persian });
 
   } catch (e: any) {
     return NextResponse.json({ persian: `خطای کلی: ${e.message.slice(0, 40)}` }, { status: 502 });
