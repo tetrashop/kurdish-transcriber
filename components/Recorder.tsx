@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 15000; 
-const MIN_CHUNK_SAMPLES = 16000 * 2.0;
+const CHUNK_MS = 10000; // تنظیم روی ۱۰ ثانیه برای تعادل بین سرعت و دقت
+const MIN_CHUNK_SAMPLES = 16000 * 1.5;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
@@ -36,42 +36,54 @@ export default function Recorder() {
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // ۱۵ ثانیه تایم‌اوت سختگیرانه
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
-        setStatus('در حال پردازش…');
+        setStatus('در حال رونویسی…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
-        const res = await fetch('/api/transcribe', { 
-          method: 'POST', 
-          body: fd,
-          signal: controller.signal 
-        });
-        
+        // ۱. دریافت سریع متن کردی
+        const res = await fetch('/api/transcribe', { method: 'POST', body: fd, signal: controller.signal });
         clearTimeout(timeoutId);
         const data = await res.json();
         
-        if (data.error) {
-           setStatus(`خطا: ${String(data.error).slice(0, 40)}`);
-        } else if (data.kurdish?.trim()) {
+        if (data.kurdish?.trim()) {
+          const newId = crypto.randomUUID();
+          const kurdishText = data.kurdish.trim();
+          
+          // نمایش فوری متن کردی روی صفحه
           setSegments((prev) => [...prev, {
-            id: crypto.randomUUID(),
-            kurdish: data.kurdish.trim(),
-            persian: data.persian.trim(),
+            id: newId,
+            kurdish: kurdishText,
+            persian: '⏳ در حال ترجمه...',
             ts: Date.now(),
           }]);
-          setStatus('در حال شنیدن…');
-        } else {
-          setStatus('در حال شنیدن…');
+
+          // ۲. ارسال درخواست ترجمه در پس‌زمینه (بدون بلاک کردن صف)
+          fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: kurdishText })
+          })
+          .then(r => r.json())
+          .then(tData => {
+             // آپدیت کردن همان سگمنت با متن فارسی
+             setSegments((prev) => prev.map(s => 
+               s.id === newId ? { ...s, persian: tData.persian } : s
+             ));
+          })
+          .catch(() => {
+             setSegments((prev) => prev.map(s => 
+               s.id === newId ? { ...s, persian: 'خطای ترجمه' } : s
+             ));
+          });
+
         }
+        setStatus('در حال شنیدن…');
       } catch (err: any) {
-        clearTimeout(timeoutId); // پاک کردن تایمر در هر شرایطی
-        if (err.name === 'AbortError') {
-          setStatus('خطا: سرور پاسخ نداد (تایم‌اوت)');
-        } else {
-          setStatus('خطای شبکه');
-        }
+        clearTimeout(timeoutId);
+        setStatus(err.name === 'AbortError' ? 'خطا: تایم‌اوت' : 'خطای شبکه');
       }
     });
     await queueRef.current;
@@ -137,7 +149,7 @@ export default function Recorder() {
               {s.kurdish}
             </div>
             <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
-              ترجمه: {s.persian || '⏳'}
+              ترجمه: {s.persian}
             </div>
           </div>
         ))}
