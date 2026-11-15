@@ -20,76 +20,45 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
-    // ۱. جستجوی معنایی در حافظه برداری (اختیاری)
+    // ۱. حافظه برداری (RAG) - اختیاری
     let memoryPrompt = '';
     try {
-      const index = new Index({
-        url: process.env.UPSTASH_VECTOR_REST_URL,
-        token: process.env.UPSTASH_VECTOR_REST_TOKEN,
-      });
+      const index = new Index({ url: process.env.UPSTASH_VECTOR_REST_URL, token: process.env.UPSTASH_VECTOR_REST_TOKEN });
       const results = await index.query({ data: text, topK: 3, includeMetadata: true });
       if (results && results.length > 0 && results[0].score > 0.85) {
-        const examples = results.map(r => `Input: "${r.data}" -> Output: "${r.metadata?.persian}"`).join('\n');
-        memoryPrompt = `\nLearn from these past corrections:\n${examples}\n`;
+        memoryPrompt = `\nLearn from:\n${results.map(r => `In: "${r.data}" -> Out: "${r.metadata?.persian}"`).join('\n')}\n`;
       }
     } catch (e) {}
 
-    // ۲. پرامپت برای دریافت خروجی JSON (بدون استفاده از response_format)
-    const systemPrompt = `You are an advanced Kurdish (Sorani) to Persian translator.
-The input is phonetic ASR output. ${memoryPrompt}
-1. Normalize the text to standard Kurdish.
-2. Translate to fluent Persian.
-You MUST output ONLY a valid JSON object in this exact format: {"kurdish": "corrected kurdish text", "persian": "persian translation"}
-Do NOT include any other text, markdown, or explanations.`;
+    const systemPrompt = `You are an advanced Kurdish (Sorani) to Persian translator. 
+${memoryPrompt}
+Translate the phonetic Kurdish input to fluent Persian.
+Output ONLY a valid JSON object: {"kurdish": "corrected kurdish", "persian": "persian translation"}`;
 
-    let parsed = { kurdish: text, persian: '' };
-    let errors = [];
+    // ۲. استفاده از Groq به عنوان موتور اصلی (جلوگیری از خطای 1xAi)
+    const clientGroq = new OpenAI({
+      baseURL: 'https://api.groq.com/openai/v1',
+      apiKey: process.env.GROQ_API_KEY,
+    });
 
-    // تلاش اول: 1xAi (Gemini)
-    if (process.env.ONE_X_AI_API_KEY) {
-      try {
-        const client1xAi = new OpenAI({ baseURL: 'https://1xai.ir/v1', apiKey: process.env.ONE_X_AI_API_KEY });
-        const completion = await client1xAi.chat.completions.create({
-          model: 'gemini-2.5-pro',
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
-          temperature: 0.1,
-          // response_format حذف شد
-        });
-        const content = completion.choices[0]?.message?.content || '{}';
-        // پاکسازی متن از markdown احتمالی
-        const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
-        parsed = JSON.parse(cleanContent);
-      } catch (err: any) {
-        errors.push(`Gemini: ${err.message.slice(0, 50)}`);
-      }
-    }
+    const completion = await clientGroq.chat.completions.create({
+      model: 'openai/gpt-oss-20b',
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
+      temperature: 0.1,
+    });
 
-    // تلاش دوم: Groq (Fallback)
-    if (!parsed.persian && process.env.GROQ_API_KEY) {
-      try {
-        const clientGroq = new OpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey: process.env.GROQ_API_KEY });
-        const completion = await clientGroq.chat.completions.create({
-          model: 'openai/gpt-oss-20b',
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
-          temperature: 0.1,
-          // response_format حذف شد
-        });
-        const content = completion.choices[0]?.message?.content || '{}';
-        const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
-        parsed = JSON.parse(cleanContent);
-      } catch (err: any) {
-        errors.push(`Groq: ${err.message.slice(0, 50)}`);
-      }
-    }
+    const content = completion.choices[0]?.message?.content || '{}';
+    const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanContent);
 
     if (!parsed.persian) {
-      return NextResponse.json({ persian: `خطای ترجمه: ${errors.join(' | ')}` });
+      return NextResponse.json({ persian: 'ترجمه‌ای یافت نشد.' });
     }
 
     await redis.decr(`credits:${userCode}`);
-    return NextResponse.json({ kurdish: parsed.kurdish, persian: parsed.persian });
+    return NextResponse.json({ kurdish: parsed.kurdish || text, persian: parsed.persian });
 
   } catch (e: any) {
-    return NextResponse.json({ persian: `خطای کلی: ${e.message.slice(0, 40)}` }, { status: 502 });
+    return NextResponse.json({ persian: `خطای ترجمه: ${e.message.slice(0, 50)}` }, { status: 502 });
   }
 }
