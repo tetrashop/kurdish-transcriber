@@ -3,16 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
 const CHUNK_MS = 5000;
-const MIN_CHUNK_SAMPLES = 16000 * 1.0;
-
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
 export default function Recorder() {
   const [recording, setRecording] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [status, setStatus] = useState('idle');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
+  const [userCode, setUserCode] = useState('');
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -21,11 +19,29 @@ export default function Recorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
 
+  // بررسی کد ذخیره شده در مرورگر هنگام لود
+  useEffect(() => {
+    const savedCode = localStorage.getItem('kurdish_user_code');
+    if (savedCode) {
+      setUserCode(savedCode);
+      setIsAuthorized(true);
+    }
+  }, []);
+
+  const handleLogin = () => {
+    if (userCode.trim().length > 3) {
+      localStorage.setItem('kurdish_user_code', userCode.trim());
+      setIsAuthorized(true);
+    } else {
+      alert('کد دسترسی نامعتبر است.');
+    }
+  };
+
   const flush = useCallback(async () => {
     const chunks = bufferRef.current;
     if (chunks.length === 0) return;
     const total = chunks.reduce((s, b) => s + b.length, 0);
-    if (total < MIN_CHUNK_SAMPLES) return;
+    if (total < 16000) return;
 
     const merged = new Float32Array(total);
     let off = 0;
@@ -33,64 +49,45 @@ export default function Recorder() {
     bufferRef.current = [];
 
     if (!hasSpeech(merged, 0.01)) return;
-
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-
       try {
         setStatus('در حال رونویسی…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
-        const res = await fetch('/api/transcribe', { method: 'POST', body: fd, signal: controller.signal });
-        clearTimeout(timeoutId);
+        const res = await fetch('/api/transcribe', { 
+          method: 'POST', 
+          body: fd,
+          headers: { 'x-user-code': userCode } // ارسال کد مشتری
+        });
         const data = await res.json();
         
         if (data.kurdish?.trim()) {
           const newId = crypto.randomUUID();
           const kurdishText = data.kurdish.trim();
-          
-          setSegments((prev) => [...prev, {
-            id: newId,
-            kurdish: kurdishText,
-            persian: '⏳ در حال ترجمه...',
-            ts: Date.now(),
-          }]);
+          setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
           fetch('/api/translate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
             body: JSON.stringify({ text: kurdishText })
           })
           .then(r => r.json())
           .then(tData => {
-             setSegments((prev) => prev.map(s => 
-               s.id === newId ? { ...s, persian: tData.persian } : s
-             ));
-          })
-          .catch(() => {
-             setSegments((prev) => prev.map(s => 
-               s.id === newId ? { ...s, persian: 'خطای ترجمه' } : s
-             ));
+             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
           });
         }
         setStatus('در حال شنیدن…');
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        setStatus(err.name === 'AbortError' ? 'خطا: تایم‌اوت' : 'خطای شبکه');
-      }
+      } catch (err) { setStatus('خطای شبکه'); }
     });
     await queueRef.current;
-  }, []);
+  }, [userCode]);
 
   const start = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
       streamRef.current = stream;
       const ctx = new AudioContext();
       ctxRef.current = ctx;
@@ -108,82 +105,53 @@ export default function Recorder() {
 
   const stop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
     await flush();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     await ctxRef.current?.close();
-    ctxRef.current = null;
-    streamRef.current = null;
     setRecording(false);
     setStatus('متوقف شد');
   };
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      ctxRef.current?.close();
-    };
-  }, []);
+  // اگر مشتری کد نداشته باشد، این صفحه را می‌بیند
+  if (!isAuthorized) {
+    return (
+      <div className="panel" style={{ textAlign: 'center', padding: '40px' }}>
+        <h2 style={{ marginBottom: '20px' }}>ورود به سیستم</h2>
+        <p style={{ marginBottom: '20px', color: '#8b949e' }}>لطفاً کد دسترسی (Access Code) خود را وارد کنید.</p>
+        <input 
+          type="text" 
+          value={userCode} 
+          onChange={(e) => setUserCode(e.target.value)}
+          placeholder="مثلاً: USER-1234"
+          style={{ padding: '12px', width: '100%', maxWidth: '300px', borderRadius: '8px', border: '1px solid #30363d', background: '#0d1117', color: 'white', marginBottom: '20px', textAlign: 'center', direction: 'ltr' }}
+        />
+        <br />
+        <button onClick={handleLogin}>ورود</button>
+      </div>
+    );
+  }
 
-  const saveCorrection = async (id: string, kurdish: string) => {
-    if (!editText.trim()) return;
-    setSegments(prev => prev.map(s => s.id === id ? { ...s, persian: editText } : s));
-    setEditingId(null);
-    await fetch('/api/memory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kurdish, persian: editText })
-    });
-    setStatus('🧠 مدل از این ترجمه یاد گرفت!');
-  };
-
+  // اگر مشتری وارد شده باشد، برنامه اصلی را می‌بیند
   return (
     <div className="panel">
-      <div className="controls" style={{ marginBottom: '20px' }}>
-        <button onClick={recording ? stop : start}>
-          {recording ? '⏹ توقف' : '🎙 شروع'}
+      <div className="controls" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
+        <div>
+           <button onClick={recording ? stop : start}>
+             {recording ? '⏹ توقف' : '🎙 شروع'}
+           </button>
+           <span className="status" style={{ marginRight: '15px', color: '#8b949e' }}>{status}</span>
+        </div>
+        <button onClick={() => { localStorage.removeItem('kurdish_user_code'); setIsAuthorized(false); }} style={{ background: 'transparent', border: '1px solid #30363d', padding: '8px' }}>
+           خروج
         </button>
-        <span className="status" style={{ marginRight: '15px', color: '#8b949e' }}>{status}</span>
       </div>
       
       <div className="transcript" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        {segments.length === 0 && <div style={{ textAlign: 'center', color: '#8b949e', padding: '20px' }}>هنوز متنی دریافت نشده…</div>}
         {segments.map((s) => (
           <div key={s.id} style={{ padding: '15px', borderBottom: '1px solid #21262d', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div>
-              <span style={{ fontSize: '11px', color: '#58a6ff', background: '#0d419d33', padding: '2px 8px', borderRadius: '999px' }}>گوینده</span>
-            </div>
-            <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>
-              {s.kurdish}
-            </div>
-            
-            <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
-              ترجمه: 
-              {editingId === s.id ? (
-                <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-                   <input 
-                     type="text" 
-                     value={editText} 
-                     onChange={(e) => setEditText(e.target.value)}
-                     style={{ flexGrow: 1, padding: '8px', borderRadius: '4px', border: '1px solid #30363d', background: '#0d1117', color: 'white', direction: 'rtl' }}
-                   />
-                   <button onClick={() => saveCorrection(s.id, s.kurdish)} style={{ padding: '8px 12px', background: '#238636', color: 'white', border: 0, borderRadius: '4px', cursor: 'pointer' }}>
-                     یادگیری
-                   </button>
-                </div>
-              ) : (
-                <span style={{ marginRight: '5px' }}>{s.persian} </span>
-              )}
-              {editingId !== s.id && (
-                <button 
-                  onClick={() => { setEditingId(s.id); setEditText(s.persian); }}
-                  style={{ background: 'transparent', border: '1px solid #30363d', color: '#58a6ff', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' }}
-                >
-                  ✏️ ویرایش
-                </button>
-              )}
-            </div>
+            <div><span style={{ fontSize: '11px', color: '#58a6ff', background: '#0d419d33', padding: '2px 8px', borderRadius: '999px' }}>گوینده</span></div>
+            <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>{s.kurdish}</div>
+            <div style={{ fontSize: '13px', color: s.persian.includes('اعتبار') ? '#f85149' : '#8b949e', direction: 'rtl' }}>ترجمه: {s.persian}</div>
           </div>
         ))}
       </div>
