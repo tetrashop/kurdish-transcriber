@@ -64,7 +64,7 @@ export default function Recorder() {
           // ایجاد یک تاخیر کوچک (۱.۵ ثانیه) بین درخواست‌های ترجمه برای جلوگیری از 429
           await new Promise(r => setTimeout(r, 1500));
 
-          const tRes = await fetch('/api/translate', {
+          const tRes = await fetch('/api/translate-v2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
             body: JSON.stringify({ text: kurdishText })
