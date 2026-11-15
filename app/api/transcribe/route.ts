@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  const userCode = req.headers.get('x-user-code');
-  if (!userCode) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'GROQ_API_KEY missing' }, { status: 500 });
 
@@ -26,8 +24,20 @@ export async function POST(req: NextRequest) {
       body: upstream,
     });
 
+    if (!sttRes.ok) throw new Error(`STT: ${sttRes.status}`);
     const sttData = await sttRes.json();
-    return NextResponse.json({ kurdish: sttData.text?.trim() || '' });
+    let originalText = sttData.text?.trim() || '';
+
+    // فیلتر بسیار قوی‌تر برای کلمات مزاحم و توهم‌زنی
+    const gibberish = ['موسیقی', 'Music', 'زیرنویس', 'ترجمه', 'Thank you', 'PYM', 'JBZ', 'پیام جبهه', 'پیشرفت بزرگ', 'پیمان جبهه', 'متن نامفهوم'];
+    const lowerText = originalText.toUpperCase();
+    
+    // اگر متن کوتاه بود و شامل کلمات مزاحم بود، کلاً نادیده بگیر
+    if (originalText.length < 50 && gibberish.some(g => lowerText.includes(g.toUpperCase()))) {
+        return NextResponse.json({ kurdish: '' });
+    }
+
+    return NextResponse.json({ kurdish: originalText });
   } catch (e: any) {
     return NextResponse.json({ error: `Network: ${e.message}` }, { status: 502 });
   }

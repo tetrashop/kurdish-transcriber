@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 5000;
+const CHUNK_MS = 10000; // افزایش به ۱۰ ثانیه برای کاهش درخواست‌ها
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
 
 export default function Recorder() {
@@ -19,21 +19,15 @@ export default function Recorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
 
-  // بررسی کد ذخیره شده در مرورگر هنگام لود
   useEffect(() => {
     const savedCode = localStorage.getItem('kurdish_user_code');
-    if (savedCode) {
-      setUserCode(savedCode);
-      setIsAuthorized(true);
-    }
+    if (savedCode) { setUserCode(savedCode); setIsAuthorized(true); }
   }, []);
 
   const handleLogin = () => {
     if (userCode.trim().length > 3) {
       localStorage.setItem('kurdish_user_code', userCode.trim());
       setIsAuthorized(true);
-    } else {
-      alert('کد دسترسی نامعتبر است.');
     }
   };
 
@@ -52,16 +46,18 @@ export default function Recorder() {
     const wav = encodeWAV(resampleTo16k(merged, rateRef.current), 16000);
 
     queueRef.current = queueRef.current.then(async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       try {
         setStatus('در حال رونویسی…');
         const fd = new FormData();
         fd.append('file', wav, 'chunk.wav');
         
         const res = await fetch('/api/transcribe', { 
-          method: 'POST', 
-          body: fd,
-          headers: { 'x-user-code': userCode } // ارسال کد مشتری
+          method: 'POST', body: fd, headers: { 'x-user-code': userCode }, signal: controller.signal 
         });
+        clearTimeout(timeoutId);
         const data = await res.json();
         
         if (data.kurdish?.trim()) {
@@ -69,18 +65,31 @@ export default function Recorder() {
           const kurdishText = data.kurdish.trim();
           setSegments((prev) => [...prev, { id: newId, kurdish: kurdishText, persian: '⏳ در حال ترجمه...', ts: Date.now() }]);
 
-          fetch('/api/translate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
-            body: JSON.stringify({ text: kurdishText })
-          })
-          .then(r => r.json())
-          .then(tData => {
-             setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
-          });
+          // درخواست ترجمه با مدیریت خطای 429 (تلاش مجدد خودکار)
+          const translateWithRetry = async (retries = 2) => {
+             try {
+                const tRes = await fetch('/api/translate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-user-code': userCode },
+                  body: JSON.stringify({ text: kurdishText })
+                });
+                const tData = await tRes.json();
+                if (tData.persian.includes('429') && retries > 0) {
+                   await new Promise(r => setTimeout(r, 2000)); // ۲ ثانیه صبر و تلاش مجدد
+                   return translateWithRetry(retries - 1);
+                }
+                setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: tData.persian } : s));
+             } catch (e) {
+                setSegments((prev) => prev.map(s => s.id === newId ? { ...s, persian: 'خطای ترجمه' } : s));
+             }
+          };
+          translateWithRetry();
         }
         setStatus('در حال شنیدن…');
-      } catch (err) { setStatus('خطای شبکه'); }
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        setStatus('خطای شبکه');
+      }
     });
     await queueRef.current;
   }, [userCode]);
@@ -95,11 +104,9 @@ export default function Recorder() {
       const source = ctx.createMediaStreamSource(stream);
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = (e) => bufferRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      source.connect(processor);
-      processor.connect(ctx.destination);
+      source.connect(processor); processor.connect(ctx.destination);
       timerRef.current = setInterval(flush, CHUNK_MS);
-      setRecording(true);
-      setStatus('در حال شنیدن…');
+      setRecording(true); setStatus('در حال شنیدن…');
     } catch (err) { setStatus('دسترسی رد شد'); }
   };
 
@@ -108,42 +115,27 @@ export default function Recorder() {
     await flush();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     await ctxRef.current?.close();
-    setRecording(false);
-    setStatus('متوقف شد');
+    setRecording(false); setStatus('متوقف شد');
   };
 
-  // اگر مشتری کد نداشته باشد، این صفحه را می‌بیند
   if (!isAuthorized) {
     return (
       <div className="panel" style={{ textAlign: 'center', padding: '40px' }}>
         <h2 style={{ marginBottom: '20px' }}>ورود به سیستم</h2>
-        <p style={{ marginBottom: '20px', color: '#8b949e' }}>لطفاً کد دسترسی (Access Code) خود را وارد کنید.</p>
-        <input 
-          type="text" 
-          value={userCode} 
-          onChange={(e) => setUserCode(e.target.value)}
-          placeholder="مثلاً: USER-1234"
-          style={{ padding: '12px', width: '100%', maxWidth: '300px', borderRadius: '8px', border: '1px solid #30363d', background: '#0d1117', color: 'white', marginBottom: '20px', textAlign: 'center', direction: 'ltr' }}
-        />
-        <br />
-        <button onClick={handleLogin}>ورود</button>
+        <input type="text" value={userCode} onChange={(e) => setUserCode(e.target.value)} placeholder="مثلاً: TEST-USER" style={{ padding: '12px', width: '100%', maxWidth: '300px', borderRadius: '8px', border: '1px solid #30363d', background: '#0d1117', color: 'white', marginBottom: '20px', textAlign: 'center', direction: 'ltr' }} />
+        <br /><button onClick={handleLogin}>ورود</button>
       </div>
     );
   }
 
-  // اگر مشتری وارد شده باشد، برنامه اصلی را می‌بیند
   return (
     <div className="panel">
       <div className="controls" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
         <div>
-           <button onClick={recording ? stop : start}>
-             {recording ? '⏹ توقف' : '🎙 شروع'}
-           </button>
+           <button onClick={recording ? stop : start}>{recording ? '⏹ توقف' : '🎙 شروع'}</button>
            <span className="status" style={{ marginRight: '15px', color: '#8b949e' }}>{status}</span>
         </div>
-        <button onClick={() => { localStorage.removeItem('kurdish_user_code'); setIsAuthorized(false); }} style={{ background: 'transparent', border: '1px solid #30363d', padding: '8px' }}>
-           خروج
-        </button>
+        <button onClick={() => { localStorage.removeItem('kurdish_user_code'); setIsAuthorized(false); }} style={{ background: 'transparent', border: '1px solid #30363d', padding: '8px' }}>خروج</button>
       </div>
       
       <div className="transcript" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
@@ -151,7 +143,7 @@ export default function Recorder() {
           <div key={s.id} style={{ padding: '15px', borderBottom: '1px solid #21262d', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div><span style={{ fontSize: '11px', color: '#58a6ff', background: '#0d419d33', padding: '2px 8px', borderRadius: '999px' }}>گوینده</span></div>
             <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>{s.kurdish}</div>
-            <div style={{ fontSize: '13px', color: s.persian.includes('اعتبار') ? '#f85149' : '#8b949e', direction: 'rtl' }}>ترجمه: {s.persian}</div>
+            <div style={{ fontSize: '13px', color: s.persian.includes('اعتبار') || s.persian.includes('خطا') ? '#f85149' : '#8b949e', direction: 'rtl' }}>ترجمه: {s.persian}</div>
           </div>
         ))}
       </div>
