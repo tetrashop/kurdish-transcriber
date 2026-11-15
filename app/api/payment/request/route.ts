@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZarinPal from 'zarinpal-node-sdk'; // اصلاح: Import به صورت Default
+import ZarinPal from 'zarinpal-node-sdk';
 import { Redis } from '@upstash/redis';
 
 export const runtime = 'nodejs';
@@ -19,9 +19,10 @@ export async function POST(req: NextRequest) {
       amount: amount * 10, // تبدیل تومان به ریال
       callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payment/verify`,
       description: `شارژ اعتبار برای ${userCode}`,
-      metadata: { order_id: userCode },
+      // فیلد metadata حذف شد چون در این نسخه از SDK پشتیبانی نمی‌شود
     });
 
+    // ذخیره کد کاربر با کلید authority در دیتابیس
     await redis.set(`payment:${response.data.authority}`, userCode, { ex: 3600 });
 
     return NextResponse.json({ redirectUrl: zarinpal.payments.getRedirectUrl(response.data.authority) });
