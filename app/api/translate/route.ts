@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
-
-// مدل پیشنهادی و پایدار Groq برای ترجمه
-const MODEL = 'openai/gpt-oss-120b';
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -14,6 +12,22 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text) return NextResponse.json({ persian: '' });
 
+    // ۱. بازیابی حافظه (آنچه قبلاً یاد گرفته‌ایم)
+    let memoryPrompt = '';
+    try {
+      const history = await kv.lrange('all_translations', 0, 10);
+      if (history && history.length > 0) {
+        const examples = history.map((h: any) => {
+           const parsed = typeof h === 'string' ? JSON.parse(h) : h;
+           return `Input: "${parsed.kurdish}" -> Output: "${parsed.persian}"`;
+        }).join('\n');
+        memoryPrompt = `\nHere are some previously corrected translations you must learn from:\n${examples}\n`;
+      }
+    } catch (e) {
+      console.log('KV not configured yet, skipping memory.');
+    }
+
+    // ۲. ترجمه با هوش مصنوعی و تزریق حافظه
     const llmRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -21,54 +35,29 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: 'openai/gpt-oss-120b',
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert Kurdish (Sorani) to Persian translator.
-The input text is a phonetic transcription of spoken Kurdish, written using the Persian alphabet. It looks like misspelled Persian, but it is actually Kurdish.
-Your task is to decode the intended meaning and translate it into fluent Persian.
-
-Examples:
-Input: "شوینواری ورگردی"
-Output: "به جای شاعری برگشتی"
-
-Input: "لکسانه اگوکو حافظ و سعدی"
-Output: "از کسانی که به حافظ و سعدی گوش می‌دهند"
-
-Input: "توانی رویشتنی نماؤ لدو خیلتا"
-Output: "توانستی بروی پیش خانواده‌ات"
-
-Output ONLY the Persian translation, nothing else.`
+            content: `You are an expert Kurdish (Sorani) to Persian translator. The input is a phonetic transcription of spoken Kurdish written in Persian alphabet.
+Translate it into fluent Persian.
+${memoryPrompt}
+Output ONLY the Persian translation.`
           },
           { role: 'user', content: text }
         ],
-        temperature: 0.3,
+        temperature: 0.2,
         max_tokens: 300,
       }),
     });
 
-    // مدیریت خطاها
-    if (llmRes.status === 404) {
-        return NextResponse.json({ persian: '⚠️ مدل ترجمه در دسترس نیست (نیاز به به‌روزرسانی)' });
-    }
-    if (llmRes.status === 429) {
-        return NextResponse.json({ persian: '⏳ محدودیت سرعت سرور' });
-    }
-    if (!llmRes.ok) {
-        const errText = await llmRes.text();
-        return NextResponse.json({ persian: `خطای مدل (${llmRes.status}): ${errText.slice(0, 60)}` });
-    }
+    if (!llmRes.ok) return NextResponse.json({ persian: `خطای مدل (${llmRes.status})` });
 
     const llmData = await llmRes.json();
-    let persianText = llmData.choices[0].message.content?.trim();
-
-    if (!persianText) {
-        persianText = 'ترجمه‌ای یافت نشد (متن بسیار نامفهوم است)';
-    }
+    let persianText = llmData.choices[0].message.content?.trim() || 'ترجمه نشد';
 
     return NextResponse.json({ persian: persianText });
   } catch (e: any) {
-    return NextResponse.json({ persian: 'خطای شبکه در ترجمه' }, { status: 502 });
+    return NextResponse.json({ persian: 'خطای شبکه' }, { status: 502 });
   }
 }

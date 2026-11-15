@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { encodeWAV, hasSpeech, resampleTo16k } from '@/lib/audio';
 
-const CHUNK_MS = 5000; // کاهش به ۵ ثانیه برای پردازش فوق‌سریع
+const CHUNK_MS = 5000; 
 const MIN_CHUNK_SAMPLES = 16000 * 1.0;
 
 type Segment = { id: string; kurdish: string; persian: string; ts: number; };
@@ -11,6 +11,8 @@ export default function Recorder() {
   const [recording, setRecording] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [status, setStatus] = useState('idle');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
 
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -36,7 +38,7 @@ export default function Recorder() {
 
     queueRef.current = queueRef.current.then(async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000); // افزایش به ۲۰ ثانیه
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
       try {
         setStatus('در حال رونویسی…');
@@ -47,11 +49,6 @@ export default function Recorder() {
         clearTimeout(timeoutId);
         const data = await res.json();
         
-        if (data.error) {
-          setStatus(`خطا: ${data.error.slice(0, 30)}`);
-          return;
-        }
-
         if (data.kurdish?.trim()) {
           const newId = crypto.randomUUID();
           const kurdishText = data.kurdish.trim();
@@ -63,7 +60,6 @@ export default function Recorder() {
             ts: Date.now(),
           }]);
 
-          // درخواست ترجمه در پس‌زمینه
           fetch('/api/translate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -130,6 +126,24 @@ export default function Recorder() {
     };
   }, []);
 
+  // تابع ذخیره اصلاح در دیتابیس
+  const saveCorrection = async (id: string, kurdish: string) => {
+    if (!editText.trim()) return;
+    
+    // آپدیت UI
+    setSegments(prev => prev.map(s => s.id === id ? { ...s, persian: editText } : s));
+    setEditingId(null);
+
+    // ارسال به حافظه سرور
+    await fetch('/api/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kurdish, persian: editText })
+    });
+    
+    setStatus('🧠 مدل از این ترجمه یاد گرفت!');
+  };
+
   return (
     <div className="panel">
       <div className="controls" style={{ marginBottom: '20px' }}>
@@ -149,8 +163,32 @@ export default function Recorder() {
             <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 'bold', direction: 'rtl' }}>
               {s.kurdish}
             </div>
+            
             <div style={{ fontSize: '13px', color: '#8b949e', direction: 'rtl' }}>
-              ترجمه: {s.persian}
+              ترجمه: 
+              {editingId === s.id ? (
+                <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                   <input 
+                     type="text" 
+                     value={editText} 
+                     onChange={(e) => setEditText(e.target.value)}
+                     style={{ flexGrow: 1, padding: '8px', borderRadius: '4px', border: '1px solid #30363d', background: '#0d1117', color: 'white', direction: 'rtl' }}
+                   />
+                   <button onClick={() => saveCorrection(s.id, s.kurdish)} style={{ padding: '8px 12px', background: '#238636', color: 'white', border: 0, borderRadius: '4px', cursor: 'pointer' }}>
+                     یادگیری
+                   </button>
+                </div>
+              ) : (
+                <span style={{ marginRight: '5px' }}>{s.persian} </span>
+              )}
+              {editingId !== s.id && (
+                <button 
+                  onClick={() => { setEditingId(s.id); setEditText(s.persian); }}
+                  style={{ background: 'transparent', border: '1px solid #30363d', color: '#58a6ff', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' }}
+                >
+                  ✏️ ویرایش
+                </button>
+              )}
             </div>
           </div>
         ))}
