@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ZarinPal } from 'zarinpal-node-sdk';
+import ZarinPal from 'zarinpal-node-sdk'; // اصلاح: Import به صورت Default
 import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
@@ -22,16 +22,16 @@ export async function GET(req: NextRequest) {
     const userCode = await redis.get(`payment:${authority}`);
     if (!userCode) return NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/?payment=error`);
 
-    // تایید پرداخت (مبلغ باید دقیقاً مبلغ درخواست باشد، اینجا فرض ۵۰ هزار تومان است)
-    const verification = await zarinpal.payments.verify({ amount: 500000, authority });
+    const verification = await zarinpal.verifications.verify({ amount: 500000, authority });
 
     if (verification.data.code === 100) {
-      await redis.incrby(`credits:${userCode}`, 50); // ۵۰ اعتبار اضافه می‌شود
+      await redis.incrby(`credits:${userCode}`, 50);
       await redis.del(`payment:${authority}`);
       return NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/?payment=success`);
     }
     return NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/?payment=invalid`);
   } catch (error) {
+    console.error(error);
     return NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/?payment=error`);
   }
 }

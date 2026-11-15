@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ZarinPal } from 'zarinpal-node-sdk';
+import ZarinPal from 'zarinpal-node-sdk'; // اصلاح: Import به صورت Default
 import { Redis } from '@upstash/redis';
 
 export const runtime = 'nodejs';
@@ -22,11 +22,11 @@ export async function POST(req: NextRequest) {
       metadata: { order_id: userCode },
     });
 
-    // ذخیره authority برای تایید نهایی
-    await redis.set(`payment:${response.data.authority}`, userCode, { ex: 3600 }); // ۱ ساعت اعتبار
+    await redis.set(`payment:${response.data.authority}`, userCode, { ex: 3600 });
 
     return NextResponse.json({ redirectUrl: zarinpal.payments.getRedirectUrl(response.data.authority) });
   } catch (error: any) {
+    console.error(error);
     return NextResponse.json({ error: 'Payment failed' }, { status: 500 });
   }
 }
